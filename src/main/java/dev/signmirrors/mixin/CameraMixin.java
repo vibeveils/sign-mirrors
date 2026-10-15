@@ -1,36 +1,19 @@
 package dev.signmirrors.mixin;
 
-import dev.signmirrors.render.MirrorCameraAccess;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.signmirrors.render.MirrorCapture;
 import net.minecraft.client.Camera;
-import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Camera.class)
-public abstract class CameraMixin implements MirrorCameraAccess {
-    @Shadow private boolean detached;
-
-    @Shadow protected abstract void setPosition(Vec3 pos);
-
-    @Shadow protected abstract void setRotation(float yRot, float xRot);
-
-    /** While capturing, whatever vanilla sets up gets overridden with the probe pose. */
-    @Inject(method = "setup", at = @At("TAIL"))
-    private void signmirrors$probePose(CallbackInfo ci) {
-        if (MirrorCapture.isCapturing() && MirrorCapture.currentMirror() != null) {
-            signmirrors$setPose(MirrorCapture.probePosition(), MirrorCapture.probeYaw(), MirrorCapture.probePitch(), true);
-        }
-    }
-
-    @Override
-    public void signmirrors$setPose(Vec3 position, float yaw, float pitch, boolean detached) {
-        this.setRotation(yaw, pitch);
-        this.setPosition(position);
-        // Detached so the player model is rendered: you can see yourself in the mirror.
-        this.detached = detached;
+public abstract class CameraMixin {
+    /** Cube faces need exactly 90 degrees, regardless of the FOV setting, sprinting or effects. */
+    @WrapOperation(method = "update",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;calculateFov(F)F"))
+    private float signmirrors$cubeFaceFov(Camera instance, float partialTicks, Operation<Float> original) {
+        if (MirrorCapture.isCapturing()) return 90.0f;
+        return original.call(instance, partialTicks);
     }
 }

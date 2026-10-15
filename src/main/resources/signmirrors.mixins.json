@@ -5,8 +5,8 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraMixin",
+    "GameRendererAccessor",
     "GameRendererMixin",
-    "MinecraftAccessor",
     "WindowMixin"
   ],
   "injectors": {

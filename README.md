@@ -32,24 +32,24 @@ same way as the text. Wall-hanging signs are not supported.
 ## How it works
 
 1. **Tracking** — `MirrorTracker` follows every loaded sign block entity (Fabric's
-   `ClientBlockEntityEvents`), parses the front text each tick, and builds the mirror quad from
+   `ClientBlockEntityEvents`), reads the front text each tick, and builds the mirror quad from
    the sign's facing/rotation (`core/MirrorGeometry`).
 2. **Proxy box** — every 2 s, rays are cast from the probe point along ±X/±Y/±Z to the first solid
    block (max `proxyMaxDistance`). That axis-aligned box approximates the room the mirror reflects.
-3. **Secondary camera** — at the start of each frame's world render, `MirrorCapture` re-runs the
-   vanilla world render from the probe point (just in front of the mirror centre), one cube face per
-   pass, into a small square target, then copies it into that mirror's 3×2 face atlas.
+3. **Secondary camera** — at the start of each frame's extraction, `MirrorCapture` points the game
+   camera at an invisible probe entity just in front of the mirror and runs vanilla's own
+   `extract` + `renderLevel` once per cube face, straight into that face's square render target.
    Only `facesPerFrame` faces are rendered per frame, round-robin across the nearest
    `maxActiveMirrors` visible mirrors, and only the ≤5 faces that can be seen in the reflection are
-   ever rendered (the one facing into the wall is skipped). The hand, view bobbing and block
-   outline are suppressed, the camera is detached so you can see yourself, and the chunk occlusion
-   graph from the player's position is reused rather than rebuilt per probe.
+   ever rendered (the one facing into the wall is skipped). FOV is forced to 90°, the projection is
+   made square, and the hand, view bobbing and block outline are suppressed. Because the camera
+   entity is the probe, your own player model shows up in the mirror.
 4. **Parallax-corrected lookup** — the mirror quad's fragment shader reflects the view ray, finds
-   where the reflected ray exits the proxy box, and samples the cube map in the direction from the
+   where the reflected ray exits the proxy box, and samples the cube faces in the direction from the
    probe to that point. That's what makes nearby walls and objects line up properly as you move,
    instead of the "painted on infinitely far away" look of a plain cube map.
-5. **Mirror-in-mirror** — other mirrors are drawn inside captures using their previous result, so
-   facing mirrors give a (1-frame-lagged) infinite corridor.
+5. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
+   inside captures, so facing mirrors show each other (one frame behind).
 
 ## Config — `config/signmirrors.json`
 
@@ -63,13 +63,13 @@ same way as the text. Wall-hanging signs are not supported.
 | `probeOffset` | 0.5 | Probe distance in front of the mirror. |
 | `reflectivity` | 0.93 | Brightness multiplier. |
 | `recursiveMirrors` | true | Draw other mirrors inside captures. |
-| `freezeOcclusionDuringCapture` | true | Reuse the player's chunk visibility for probes. |
-| `flipAtlasV` | false | Turn on if reflections are upside down on your graphics backend. |
+| `disableOcclusionCullingDuringCapture` | true | Turn off chunk occlusion culling for reflections (as Iris does for shadows). |
+| `flipFaceV` | false | Turn on if reflections are upside down on your graphics backend. |
 
 ## Building
 
-Needs **JDK 25**. First update `gradle.properties` with the exact 26.3 values from
-<https://fabricmc.net/develop> (loader, Loom, Fabric API), then:
+Needs **JDK 25**. Versions in `gradle.properties` (loader 0.19.5, Loom 1.18-SNAPSHOT,
+Fabric API 0.162.0+26.3, Gradle 9.7.1) match FabricMC's official 26.3 example mod.
 
 ```
 ./gradlew build        # jar in build/libs/
@@ -89,24 +89,26 @@ git tag v0.1.0 && git push origin v0.1.0
 
 If a build fails, the test reports are uploaded as a separate artifact.
 
-### What to check on the first 26.3 build
+### Where the 26.3 API usage comes from
 
-The parsing/geometry/cube-face code (`core/`) is plain Java and is unit-tested. The rendering side
-was written against Mojang's Blaze3D API as it stood in the 1.21.x → 26.x line but could not be
-compiled against 26.3 when this project was generated (no network access to Fabric's Maven), so
-expect a few name fixes. All of it lives in five files:
+26.3 moved the GPU layer into Mojang's new `com.mojang.renderpearl` library (bind-group pipelines,
+Vulkan-style draw calls) and split each frame into extract-then-render. Every Minecraft and
+renderpearl call in this mod is one that is also used by code already building against 26.3 —
+Fabric API, Iris, Sodium and Tweakeroo's 26.3 branches:
 
-| File | API it leans on |
+| Mod code | Modelled on |
 |---|---|
-| `render/MirrorDrawer.java` | `RenderPipeline.builder`, `RenderPipelines.MATRICES_PROJECTION_SNIPPET`, `DynamicUniforms.writeTransform(...)` arg list, `RenderPass.bindTexture(name, view, sampler)` + `RenderSystem.getSamplerCache()` (older: `bindSampler(name, view)`), `VertexFormat.uploadImmediateVertexBuffer` |
-| `render/MirrorProbe.java` | `GpuDevice.createTexture/createTextureView/createBuffer` signatures, usage flags |
-| `render/MirrorCapture.java` | `GameRenderer.renderLevel(DeltaTracker)`, `TextureTarget` constructor, `CommandEncoder.copyTextureToTexture` |
-| `mixin/CameraMixin.java` | `Camera.setup`, `setPosition`, `setRotation(yaw, pitch)`, field `detached` |
-| `mixin/GameRendererMixin.java` | method names `renderLevel`, `getFov`, `bobView`, `bobHurt`, `renderItemInHand`, `shouldRenderBlockOutline`, and the `LevelRenderer.renderLevel` call inside `renderLevel` |
+| `render/MirrorDrawer` (pipeline, bind group, render pass, draw) | Sodium `ShaderChunkRenderer` / `DefaultChunkRenderer`, Iris `HorizonRenderer` |
+| `render/MirrorCapture` (camera entity, `Camera.update`, extract + render) | Tweakeroo freecam, Fabric's client game-test frame driver |
+| `mixin/CameraMixin` (`calculateFov` in `Camera.update`) | Tweakeroo `MixinCamera` |
+| `mixin/GameRendererMixin` (`ProjectionMatrixBuffer.getBuffer`, `bobView`) | Sodium and Tweakeroo `GameRenderer` mixins |
+| End-of-world-pass hook | Fabric API `LevelRenderEvents.END_MAIN` |
 
-`SectionOcclusionGraphMixin` is in a separate non-required mixin config, so if those methods have
-moved it is skipped with a warning rather than crashing. If a capture throws at runtime, mirrors
-disable themselves for the session and the error is logged instead of crashing the game.
+Sign text is read through a small reflection helper (`world/SignTextReader`) because 26.3 reworked
+the sign text accessors around `SignTextSlot`; the game is unobfuscated, so this is reliable.
+
+If a capture throws at runtime, mirrors disable themselves for the session and the error is logged
+instead of crashing the game.
 
 ## Known limitations
 
@@ -115,8 +117,9 @@ disable themselves for the session and the error is logged instead of crashing t
 - Captures are full world renders at probe resolution; with many mirrors, lower `facesPerFrame`
   or `probeResolution`. Each face refreshes every few frames, so fast-moving things in reflections
   update at a lower rate than the main view.
-- With the occlusion freeze on, chunks hidden from the player but visible from a probe (e.g. around
-  a corner) can be missing in the reflection; turn it off to trade that for CPU cost and possible flicker.
+- Each face capture is a full vanilla world render at probe resolution. With
+  `disableOcclusionCullingDuringCapture` off, chunks hidden from the player but visible in the mirror
+  may be missing, and chunk visibility may flicker; with it on, captures cost more CPU.
 - Translucent blocks (water, glass) *in front of* a mirror get drawn over by the mirror, because
   mirrors are drawn after the world.
-- Shader packs (Iris) replace the world pipeline and are not supported.
+- Shader packs (Iris) and Sodium replace parts of the world pipeline; combinations with them are untested.

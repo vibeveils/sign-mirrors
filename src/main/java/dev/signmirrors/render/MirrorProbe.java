@@ -1,42 +1,66 @@
 package dev.signmirrors.render;
 
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.systems.GpuDevice;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.textures.GpuTextureView;
-import com.mojang.blaze3d.textures.TextureFormat;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.renderpearl.api.GpuFormat;
+import dev.signmirrors.core.CubeFace;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * GPU side of one mirror: a 3x2 atlas holding the six cube-map faces (see CubeFace for layout)
- * and a small uniform buffer with the per-mirror parameters for the mirror shader.
+ * GPU side of one mirror: one square render target per cube face it needs (at most five). Each
+ * capture renders the world straight into the face's target, and the mirror shader samples the
+ * face textures directly, so nothing has to be copied.
+ *
+ * Targets are pooled (keyed by size and formats) and handed back on release rather than destroyed,
+ * so mirrors coming in and out of range don't churn GPU allocations.
  */
-public final class MirrorProbe implements AutoCloseable {
-    /** std140 block MirrorInfo: five vec4s. */
-    public static final int UNIFORM_SIZE = 5 * 16;
+public final class MirrorProbe {
+    private record Key(int resolution, GpuFormat color, GpuFormat depth) {}
+
+    private static final Map<Key, Deque<RenderTarget>> POOL = new HashMap<>();
 
     public final int resolution;
-    public final GpuTexture atlas;
-    public final GpuTextureView atlasView;
-    public final GpuBuffer uniforms;
+    private final Key key;
+    private final RenderTarget[] faces = new RenderTarget[CubeFace.values().length];
 
-    public MirrorProbe(int resolution) {
+    public MirrorProbe(int resolution, GpuFormat colorFormat, GpuFormat depthFormat, List<CubeFace> neededFaces) {
         this.resolution = resolution;
-        GpuDevice device = RenderSystem.getDevice();
-        this.atlas = device.createTexture(() -> "signmirrors probe atlas",
-                GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_RENDER_ATTACHMENT,
-                TextureFormat.RGBA8, resolution * 3, resolution * 2, 1, 1);
-        this.atlasView = device.createTextureView(atlas);
-        this.uniforms = device.createBuffer(() -> "signmirrors MirrorInfo",
-                GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, UNIFORM_SIZE);
-        // Neutral grey until the first faces are captured.
-        device.createCommandEncoder().clearColorTexture(atlas, 0xFF6E7378);
+        this.key = new Key(resolution, colorFormat, depthFormat);
+        Deque<RenderTarget> pool = POOL.computeIfAbsent(key, k -> new ArrayDeque<>());
+        for (CubeFace face : neededFaces) {
+            RenderTarget target = pool.pollFirst();
+            if (target == null) {
+                target = new TextureTarget("signmirrors probe " + face.name(), resolution, resolution, colorFormat, depthFormat);
+            }
+            faces[face.ordinal()] = target;
+        }
     }
 
-    @Override
-    public void close() {
-        atlasView.close();
-        atlas.close();
-        uniforms.close();
+    public boolean matches(int resolution, GpuFormat colorFormat, GpuFormat depthFormat) {
+        return key.equals(new Key(resolution, colorFormat, depthFormat));
+    }
+
+    /** Null for faces this mirror never needs. */
+    public RenderTarget face(CubeFace face) {
+        return faces[face.ordinal()];
+    }
+
+    /** Any allocated face; bound in place of unneeded faces (the shader never samples those). */
+    public RenderTarget anyFace() {
+        for (RenderTarget t : faces) if (t != null) return t;
+        throw new IllegalStateException("mirror probe has no faces");
+    }
+
+    public void release() {
+        Deque<RenderTarget> pool = POOL.computeIfAbsent(key, k -> new ArrayDeque<>());
+        for (int i = 0; i < faces.length; i++) {
+            if (faces[i] != null) pool.addFirst(faces[i]);
+            faces[i] = null;
+        }
     }
 }

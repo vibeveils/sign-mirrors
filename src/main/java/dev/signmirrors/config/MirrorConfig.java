@@ -28,12 +28,15 @@ public class MirrorConfig {
     public double probeOffset = 0.5;
     /** Brightness multiplier on the reflection (real mirrors lose a little light). */
     public float reflectivity = 0.93f;
-    /** Keep the chunk occlusion graph from the player's view while capturing (avoids chunk flicker). */
-    public boolean freezeOcclusionDuringCapture = true;
+    /**
+     * Turn off chunk occlusion culling while rendering reflections (as Iris does for its shadow pass),
+     * so chunks hidden from the player but visible in the mirror aren't missing.
+     */
+    public boolean disableOcclusionCullingDuringCapture = true;
     /** Draw other mirrors inside captures, using their previous-frame reflection (mirror-in-mirror). */
     public boolean recursiveMirrors = true;
-    /** Flip atlas V when sampling. Turn on if reflections appear upside down on your graphics backend. */
-    public boolean flipAtlasV = false;
+    /** Flip cube faces vertically when sampling. Turn on if reflections appear upside down on your graphics backend. */
+    public boolean flipFaceV = false;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 

@@ -4,7 +4,7 @@
   "package": "dev.signmirrors.mixin.optional",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "SectionOcclusionGraphMixin"
+    "LevelExtractorMixin"
   ],
   "injectors": {
     "defaultRequire": 0

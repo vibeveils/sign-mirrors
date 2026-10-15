@@ -34,7 +34,7 @@ public final class Mirror {
 
     void releaseProbe() {
         if (probe != null) {
-            probe.close();
+            probe.release();
             probe = null;
         }
         capturedFaces = 0;

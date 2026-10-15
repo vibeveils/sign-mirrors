@@ -18,7 +18,6 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.CollisionContext;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -67,8 +66,10 @@ public final class MirrorTracker {
         for (SignBlockEntity sign : signs) {
             if (sign.isRemoved()) continue;
             BlockPos pos = sign.getBlockPos();
-            String l1 = line(sign, 0), l2 = line(sign, 1), l3 = line(sign, 2);
-            var spec = MirrorSpec.parse(l1, l2, l3);
+            String[] lines = SignTextReader.frontLines(sign);
+            if (lines == null) continue;
+            String l2 = lines[1], l3 = lines[2];
+            var spec = MirrorSpec.parse(lines[0], l2, l3);
             if (spec.isEmpty()) continue;
             BlockState state = sign.getBlockState();
             String key = l2 + '|' + l3 + '|' + state + '|' + cfg.probeOffset;
@@ -89,7 +90,7 @@ public final class MirrorTracker {
         signs.removeIf(SignBlockEntity::isRemoved);
 
         // Proxy boxes follow the room as blocks change; probes are freed when far away.
-        Vec3 cam = mc.gameRenderer.getMainCamera().getPosition();
+        Vec3 cam = mc.gameRenderer.mainCamera().position();
         double release = cfg.maxMirrorDistance * 1.5;
         for (Mirror m : mirrors.values()) {
             double d = dist(cam, m.geometry.center());
@@ -97,8 +98,8 @@ public final class MirrorTracker {
                 m.releaseProbe();
                 continue;
             }
-            if (m.box == null || ++m.boxAgeTicks >= BOX_REFRESH_TICKS) {
-                m.box = ProxyBox.build(m.geometry, cfg.proxyMaxDistance, (from, to) -> raycast(mc.level, from, to));
+            if (mc.player != null && (m.box == null || ++m.boxAgeTicks >= BOX_REFRESH_TICKS)) {
+                m.box = ProxyBox.build(m.geometry, cfg.proxyMaxDistance, (from, to) -> raycast(mc, from, to));
                 m.boxAgeTicks = 0;
             }
         }
@@ -127,10 +128,6 @@ public final class MirrorTracker {
         signs.clear();
     }
 
-    private static String line(SignBlockEntity sign, int i) {
-        return sign.getFrontText().getMessage(i, false).getString();
-    }
-
     private static MirrorGeometry buildGeometry(BlockPos pos, BlockState state, MirrorSpec spec, double probeOffset) {
         if (state.getBlock() instanceof WallSignBlock && state.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) {
             Direction facing = state.getValue(BlockStateProperties.HORIZONTAL_FACING);
@@ -144,10 +141,10 @@ public final class MirrorTracker {
         return null; // wall hanging signs etc. are not supported
     }
 
-    private static double raycast(ClientLevel level, V3 from, V3 to) {
+    private static double raycast(Minecraft mc, V3 from, V3 to) {
         Vec3 a = new Vec3(from.x(), from.y(), from.z());
         Vec3 b = new Vec3(to.x(), to.y(), to.z());
-        BlockHitResult hit = level.clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty()));
+        BlockHitResult hit = mc.level.clip(new ClipContext(a, b, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mc.player));
         return hit.getType() == HitResult.Type.MISS ? a.distanceTo(b) : a.distanceTo(hit.getLocation());
     }
 
