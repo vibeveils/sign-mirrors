@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.signmirrors.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "CameraAccessor",
+    "CameraMixin",
+    "GameRendererAccessor",
+    "GameRendererMixin",
+    "LevelExtractorAccessor",
+    "LevelExtractorPlayerMixin",
+    "OptionsMixin",
+    "SignBlockEntityAccessor",
+    "WindowMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

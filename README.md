@@ -31,40 +31,65 @@ same way as the text. Wall-hanging signs are not supported.
 
 ## How it works
 
-1. **Tracking** — `MirrorTracker` follows every loaded sign block entity (Fabric's
-   `ClientBlockEntityEvents`), reads the front text each tick, and builds the mirror quad from
-   the sign's facing/rotation (`core/MirrorGeometry`).
+1. **Tracking** — `MirrorTracker` follows every loaded sign block entity, including signs already in
+   the world when you join (each chunk's block entities are scanned as it loads). It reads the
+   front text each tick and builds the mirror quad from the sign's facing/rotation.
 2. **Proxy box** — every 2 s, rays are cast from the probe point along ±X/±Y/±Z to the first solid
-   block (max `proxyMaxDistance`). That axis-aligned box approximates the room the mirror reflects.
-3. **Secondary camera** — at the start of each frame's extraction, `MirrorCapture` points the game
-   camera at an invisible probe entity just in front of the mirror and runs vanilla's own
-   `extract` + `renderLevel` once per cube face, straight into that face's square render target.
-   Only `facesPerFrame` faces are rendered per frame, round-robin across the nearest
-   `maxActiveMirrors` visible mirrors, and only the ≤5 faces that can be seen in the reflection are
-   ever rendered (the one facing into the wall is skipped). FOV is forced to 90°, the projection is
-   made square, and the hand, view bobbing and block outline are suppressed. Because the camera
-   entity is the probe, your own player model shows up in the mirror.
-4. **Parallax-corrected lookup** — the mirror quad's fragment shader reflects the view ray, finds
-   where the reflected ray exits the proxy box, and samples the cube faces in the direction from the
-   probe to that point. That's what makes nearby walls and objects line up properly as you move,
-   instead of the "painted on infinitely far away" look of a plain cube map.
-5. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
-   inside captures, so facing mirrors show each other (one frame behind).
+   block (max *Room size limit*). That axis-aligned box approximates the room the mirror reflects.
+3. **Visibility and level of detail** (`render/MirrorVisibility`, once per frame):
+   - *Frustum culling* — mirrors outside the view are skipped.
+   - *Occlusion culling* — rays from the camera to nine points on the mirror; it's hidden only if
+     every ray is blocked by a solid block or by another mirror. Checked every few frames, with a
+     grace period so mirrors don't pop in and out.
+   - *Resolution* — each mirror's projected screen size picks its cube-face resolution (between the
+     min and max, times *Resolution scale*). A mirror filling the view gets the maximum; a small
+     distant one the minimum. Changes wait a few frames, and the new probe is filled before it
+     replaces the old one, so there's no grey flash.
+   - *Priority* — bigger, closer and more central mirrors are refreshed more often.
+   - *Visible faces* — the same reflect-and-parallax maths as the shader, run on a grid over the
+     mirror, finds which cube faces the reflection actually reads from where you're standing.
+     Usually that's only one to three faces.
+4. **Secondary camera** — the budget (*Reflection updates per frame*) goes to the highest-priority
+   faces: never-captured visible faces first (a few may exceed the budget so new mirrors fill in
+   at once), then visible faces by staleness, then occasionally the faces you can't currently see.
+   Each face is a vanilla `extract` + `renderLevel` pass from the probe entity, at exactly 90° x 90°,
+   straight into that face's render target. The hand, view bobbing, block outline and clouds are
+   suppressed, and you appear in the reflection.
+5. **Parallax-corrected lookup** — the mirror's fragment shader reflects the view ray, finds where it
+   exits the proxy box, and samples the cube faces from the probe toward that point.
+6. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
+   inside captures (frustum-culled per view), so facing mirrors show each other one frame behind.
 
-## Config — `config/signmirrors.json`
+## Options
 
-| Key | Default | Notes |
+With [Mod Menu](https://modrinth.com/mod/modmenu) and [Cloth Config](https://modrinth.com/mod/cloth-config)
+installed, open Mods → Sign Mirrors → Configure. Without them, edit `config/signmirrors.json`.
+
+| Preset | Face resolution | Scale | Updates/frame | Mirrors at once | Distance | Mirror-in-mirror | Off-screen refresh |
+|---|---|---|---|---|---|---|---|
+| Low | 32–128 | 50% | 1 | 2 | 32 | off | off |
+| Medium | 64–256 | 75% | 2 | 4 | 48 | on | off |
+| **High** (default) | 64–512 | 100% | 3 | 6 | 64 | on | on |
+| Ultra | 128–1024 | 125% | 5 | 8 | 96 | on | on |
+| Custom | your settings | | | | | | |
+
+Changing any Quality/Performance setting yourself switches the preset to Custom.
+
+| Page | Setting | What it does |
 |---|---|---|
-| `probeResolution` | 256 | Per cube face. 128 is fine for small mirrors; 512 for big ones. |
-| `facesPerFrame` | 2 | The main cost: each face is one extra square world render. 1 = cheapest. |
-| `maxActiveMirrors` | 4 | Nearest N visible mirrors get updates. |
-| `maxMirrorDistance` | 48 | Beyond this, mirrors aren't drawn (the sign shows). |
-| `proxyMaxDistance` | 32 | Parallax box reach. Larger suits outdoor mirrors. |
-| `probeOffset` | 0.5 | Probe distance in front of the mirror. |
-| `reflectivity` | 0.93 | Brightness multiplier. |
-| `recursiveMirrors` | true | Draw other mirrors inside captures. |
-| `disableOcclusionCullingDuringCapture` | true | Turn off chunk occlusion culling for reflections (as Iris does for shadows). |
-| `flipFaceV` | false | Turn on if reflections are upside down on your graphics backend. |
+| Quality | Min / max face resolution | Range the LOD picks from. Max is the biggest quality knob. |
+| | Resolution scale | Reflection texels per screen pixel of mirror height. |
+| | Refresh off-screen reflection directions | Keep faces you can't see fresh for when you move. |
+| | Mirrors in reflections | Mirror-in-mirror. |
+| | Reflectivity | Reflection brightness. |
+| Performance | Reflection updates per frame | Faces re-rendered per frame — the main cost. |
+| | Mirrors updated at once | Most important N visible mirrors. |
+| | Mirror draw distance | Beyond this, mirrors are plain signs. |
+| Culling | Skip mirrors outside the view / hidden mirrors | Frustum / occlusion culling. |
+| | Hidden-mirror check interval, grace period | Raycast frequency and anti-pop delay. |
+| Advanced | Full chunk visibility in reflections | Turns off chunk occlusion culling during captures. |
+| | Room size limit, probe distance | Parallax box reach and probe placement. |
+| | Flip reflections vertically | Backend workaround. |
 
 ## Building
 
@@ -114,14 +139,14 @@ instead of crashing the game.
 
 - Parallax correction assumes a box-shaped room. Odd shapes, and objects in the middle of the room,
   will be slightly off — that's inherent to the technique.
-- Captures are full world renders at probe resolution; with many mirrors, lower `facesPerFrame`
-  or `probeResolution`. Each face refreshes every few frames, so fast-moving things in reflections
-  update at a lower rate than the main view.
-- Each face capture is a full vanilla world render at probe resolution. With
-  `disableOcclusionCullingDuringCapture` off, chunks hidden from the player but visible in the mirror
+- Each face update is a full world render. Lower *Reflection updates per frame* or the resolution
+  settings (or pick a lower preset) if frame rate suffers. Reflections refresh by priority, so
+  fast-moving things in reflections update less often than the main view.
+- With *Full chunk visibility in reflections* off, chunks hidden from the player but visible in the mirror
   may be missing, and chunk visibility may flicker; with it on, captures cost more CPU.
 - Translucent blocks (water, glass) *in front of* a mirror get drawn over by the mirror, because
-  mirrors are drawn after the world.
+  mirrors are drawn after the world. Glass also counts as blocking for hidden-mirror culling.
+- Clouds are not drawn inside reflections (the cloud renderer can't share a frame between two views).
 - Sodium: supported. Sodium assumes one level render per frame, so before each capture the mod resets
   Sodium's per-frame terrain uniforms (`render/SodiumCompat`, via reflection — no compile dependency).
 - Shader packs (Iris) replace the world pipeline and are untested.
