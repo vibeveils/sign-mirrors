@@ -61,6 +61,8 @@ public final class MirrorCapture {
     private static Matrix4f captureViewRotation;
     /** Planar mode re-renders much sooner once the player's eye has moved. */
     private static final double EYE_MOVED_BOOST = 25.0;
+    /** Cosine of the look-direction change (about 1.5 degrees) that counts as moved. */
+    private static final double LOOK_CHANGED_COS = Math.cos(Math.toRadians(1.5));
 
     private MirrorCapture() {}
 
@@ -104,8 +106,9 @@ public final class MirrorCapture {
         Camera camera = gameRenderer.mainCamera();
         // GameRenderer.update has already placed the camera for this frame: this is where the player sees from.
         Vec3 eye = camera.position();
+        Vec3 look = Vec3.directionFromRotation(camera.xRot(), camera.yRot());
 
-        List<Job> jobs = pickJobs(active, cfg, eye);
+        List<Job> jobs = pickJobs(active, cfg, eye, look);
         if (jobs.isEmpty()) return;
 
         GameRendererAccessor accessor = (GameRendererAccessor) gameRenderer;
@@ -146,7 +149,11 @@ public final class MirrorCapture {
                     V3 n = mirror.geometry.normal();
                     V3 eyeV = new V3(eye.x, eye.y, eye.z);
                     V3 virtualEye = PlanarMath.reflectPoint(eyeV, mirror.geometry.center(), n);
-                    PlanarMath.Aim aim = PlanarMath.aim(virtualEye, mirror.geometry);
+                    // Frame only the part of the mirror that's on screen (not the whole mirror), so the
+                    // render's texels go where they're seen and the FOV stays sane up close.
+                    V3[] region = mirror.visibleRegion != null && mirror.visibleRegion.length >= 3
+                            ? mirror.visibleRegion : mirror.geometry.corners();
+                    PlanarMath.Aim aim = PlanarMath.aim(virtualEye, region);
                     captureFovDegrees = aim.fovDegrees();
                     clipNormal = n;
                     clipPoint = mirror.geometry.center().sub(n.mul(0.01)); // keep things touching the glass
@@ -187,6 +194,7 @@ public final class MirrorCapture {
                     probe.planarViewProj = new Matrix4f(proj).mul(captureViewRotation);
                     probe.planarOrigin = captureCameraPos;
                     probe.planarEye = eye;
+                    probe.planarLook = look;
                 }
                 probe.markCaptured(face, frame);
             }
@@ -269,7 +277,7 @@ public final class MirrorCapture {
      * and up to {@link #MAX_BURST} of them may exceed the per-frame budget so new mirrors (and
      * resolution changes) fill in immediately rather than showing grey.
      */
-    private static List<Job> pickJobs(List<Mirror> active, MirrorConfig cfg, Vec3 eye) {
+    private static List<Job> pickJobs(List<Mirror> active, MirrorConfig cfg, Vec3 eye, Vec3 look) {
         List<Job> candidates = new ArrayList<>();
         for (Mirror m : active) {
             MirrorProbe target = m.captureTarget();
@@ -282,7 +290,9 @@ public final class MirrorCapture {
                     score = 1e12 * (1 + m.weight);
                 } else {
                     long age = Math.max(1, frame - target.capturedFrame(slot));
-                    boolean moved = target.planarEye == null || target.planarEye.distanceToSqr(eye) > 1e-5;
+                    // The view depends on the eye position, and the framed region on the look direction.
+                    boolean moved = target.planarEye == null || target.planarEye.distanceToSqr(eye) > 1e-5
+                            || target.planarLook == null || target.planarLook.dot(look) < LOOK_CHANGED_COS;
                     score = m.weight * age * (moved ? EYE_MOVED_BOOST : 1.0);
                 }
                 candidates.add(new Job(m, target, slot, score));

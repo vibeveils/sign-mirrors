@@ -2,6 +2,7 @@ package dev.signmirrors.render;
 
 import dev.signmirrors.config.MirrorConfig;
 import dev.signmirrors.core.MirrorView;
+import dev.signmirrors.core.PlanarMath;
 import dev.signmirrors.core.V3;
 import dev.signmirrors.world.Mirror;
 import dev.signmirrors.world.MirrorTracker;
@@ -39,6 +40,8 @@ final class MirrorVisibility {
     /** Frames the LOD must keep asking for a higher / lower resolution before the probe changes. */
     private static final int UPGRADE_FRAMES = 4;
     private static final int DOWNGRADE_FRAMES = 40;
+    /** How much wider than the screen the framed region is, to cover movement until the next render. */
+    private static final double REGION_MARGIN = 0.15;
 
     private MirrorVisibility() {}
 
@@ -53,6 +56,15 @@ final class MirrorVisibility {
         V3 look = new V3(lookVec.x, lookVec.y, lookVec.z);
         FrustumIntersection frustum = viewProj != null && cfg.frustumCulling ? new FrustumIntersection(viewProj) : null;
         int screenHeight = Math.max(1, mc.getWindow().getHeight());
+        int screenWidth = Math.max(1, mc.getWindow().getWidth());
+        double[] viewProjD = null;
+        if (viewProj != null) {
+            float[] f = new float[16];
+            viewProj.get(f);
+            viewProjD = new double[16];
+            for (int i = 0; i < 16; i++) viewProjD[i] = f[i];
+        }
+        boolean planar = cfg.technique == MirrorConfig.Technique.PLANAR;
 
         // Pass 1: distance, facing and frustum.
         for (Mirror m : all) {
@@ -87,8 +99,21 @@ final class MirrorVisibility {
             m.weight = (0.02 + m.coverage) * (0.35 + 0.65 * centrality * centrality);
             m.visibleFaceMask = m.box != null ? MirrorView.visibleFaceMask(m.geometry, m.box, camV) : 0;
 
-            int target = MirrorView.chooseResolution(m.coverage, screenHeight, cfg.resolutionScale,
-                    cfg.minResolution, cfg.maxResolution);
+            // The on-screen part of the mirror: planar captures frame just this, and its size on screen
+            // sets the resolution, so close-ups get roughly one reflection texel per screen pixel.
+            if (viewProjD != null) {
+                V3[] region = PlanarMath.visibleRegion(m.geometry.corners(), viewProjD, camV, REGION_MARGIN);
+                m.visibleRegion = region.length >= 3 ? region : m.geometry.corners();
+                m.screenExtentPx = PlanarMath.screenExtentPixels(m.visibleRegion, viewProjD, camV, screenWidth, screenHeight);
+            } else {
+                m.visibleRegion = m.geometry.corners();
+                m.screenExtentPx = Math.sqrt(m.coverage) * screenHeight;
+            }
+
+            int target = planar
+                    ? MirrorView.resolutionForPixels(m.screenExtentPx, cfg.resolutionScale, cfg.minResolution, cfg.maxResolution)
+                    : MirrorView.chooseResolution(m.coverage, screenHeight, cfg.resolutionScale,
+                            cfg.minResolution, cfg.maxResolution);
             int current = m.pendingProbe != null ? m.pendingProbe.resolution
                     : m.probe != null ? m.probe.resolution : 0;
             if (target == m.targetResolution) {

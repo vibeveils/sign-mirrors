@@ -111,7 +111,12 @@ public final class MirrorView {
      * scaled, rounded up to a power of two and clamped.
      */
     public static int chooseResolution(double coverage, int screenHeight, double scale, int min, int max) {
-        double px = Math.sqrt(Math.max(0, Math.min(1, coverage))) * screenHeight * scale;
+        return resolutionForPixels(Math.sqrt(Math.max(0, Math.min(1, coverage))) * screenHeight, scale, min, max);
+    }
+
+    /** Power-of-two texture size giving about {@code scale} texels per pixel across {@code pixels}, clamped. */
+    public static int resolutionForPixels(double pixels, double scale, int min, int max) {
+        double px = Math.max(0, pixels) * scale;
         int res = Integer.highestOneBit(Math.max(1, (int) Math.ceil(px)));
         if (res < px) res <<= 1;
         return Math.max(min, Math.min(max, res));

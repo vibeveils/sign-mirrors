@@ -30,9 +30,9 @@ public class MirrorConfig {
 
     // ---- Quality (set by preset unless CUSTOM) ----
     /** Smallest cube-face resolution, used for small or distant mirrors. Power of two. */
-    public int minResolution = 64;
+    public int minResolution = 128;
     /** Largest cube-face resolution, used when a mirror fills the view. Power of two. */
-    public int maxResolution = 512;
+    public int maxResolution = 1024;
     /** Face texels per screen pixel of mirror height; 1.0 roughly matches screen sharpness. */
     public float resolutionScale = 1.0f;
     /** Re-render faces the reflection can't currently show (keeps them fresh for when you move). */
@@ -105,10 +105,10 @@ public class MirrorConfig {
         if (preset == null) preset = Preset.HIGH;
         if (technique == null) technique = Technique.PLANAR;
         switch (preset) {
-            case LOW -> set(32, 128, 0.5f, false, false, 1, 2, 32);
-            case MEDIUM -> set(64, 256, 0.75f, false, true, 2, 4, 48);
-            case HIGH -> set(64, 512, 1.0f, true, true, 3, 6, 64);
-            case ULTRA -> set(128, 1024, 1.25f, true, true, 5, 8, 96);
+            case LOW -> set(64, 256, 0.5f, false, false, 1, 2, 32);
+            case MEDIUM -> set(64, 512, 0.75f, false, true, 2, 4, 48);
+            case HIGH -> set(128, 1024, 1.0f, true, true, 3, 6, 64);
+            case ULTRA -> set(128, 2048, 1.0f, true, true, 5, 8, 96);
             case CUSTOM -> { }
         }
         minResolution = pow2(Math.max(16, Math.min(2048, minResolution)));

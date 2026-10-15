@@ -119,4 +119,72 @@ class PlanarMathTest {
         // The virtual eye is on the far side of the mirror plane.
         assertTrue(virtualEye.sub(g.center()).dot(g.normal()) < 0);
     }
+
+    /** viewProj for a camera looking toward +Z (yaw 0), standard GL, 70 degree vertical FOV, 16:9. */
+    private static double[] viewProjLookingSouth() {
+        double[] p = perspective(70, 16.0 / 9.0, 0.05, 512, false);
+        // view = rotation by 180 degrees about Y: x -> -x, z -> -z
+        double[] v = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+        double[] out = new double[16];
+        for (int c = 0; c < 4; c++) {
+            double[] col = PlanarMath.mul(p, new double[] {v[c * 4], v[c * 4 + 1], v[c * 4 + 2], v[c * 4 + 3]});
+            System.arraycopy(col, 0, out, c * 4, 4);
+        }
+        return out;
+    }
+
+    /** 3x2 wall mirror on the z=1 wall, facing north toward the player. */
+    private static MirrorGeometry bigMirror() {
+        return MirrorGeometry.build(0, 64, 0, new V3(0, 0, -1), MirrorGeometry.Mount.WALL,
+                MirrorSpec.parse("[Mirror]", "3,2", "").orElseThrow(), 0.5);
+    }
+
+    @Test
+    void visibleRegionKeepsWholeMirrorWhenFarAway() {
+        MirrorGeometry g = bigMirror();
+        V3 eye = g.center().add(new V3(0, 0, -12));
+        V3[] region = PlanarMath.visibleRegion(g.corners(), viewProjLookingSouth(), eye, 0.1);
+        assertEquals(4, region.length);
+    }
+
+    @Test
+    void visibleRegionClipsToScreenWhenClose() {
+        MirrorGeometry g = bigMirror();
+        V3 eye = g.center().add(new V3(0, 0, -0.4)); // nose almost on the glass
+        V3[] region = PlanarMath.visibleRegion(g.corners(), viewProjLookingSouth(), eye, 0.1);
+        assertTrue(region.length >= 3, "part of the mirror is on screen");
+        // Everything kept is within the (widened) screen.
+        double[] vp = viewProjLookingSouth();
+        for (V3 p : region) {
+            double[] c = PlanarMath.mul(vp, new double[] {p.x() - eye.x(), p.y() - eye.y(), p.z() - eye.z(), 1});
+            assertTrue(Math.abs(c[0] / c[3]) <= 1.1 + 1e-6 && Math.abs(c[1] / c[3]) <= 1.1 + 1e-6);
+        }
+        // Framing just that region needs a far narrower reflected camera than framing the whole mirror.
+        V3 virtualEye = PlanarMath.reflectPoint(eye, g.center(), g.normal());
+        double whole = PlanarMath.aim(virtualEye, g).fovDegrees();
+        double visible = PlanarMath.aim(virtualEye, region).fovDegrees();
+        assertTrue(whole >= 150, "whole-mirror framing balloons when close: " + whole);
+        // The player's horizontal FOV here is ~102.5 degrees (70 vertical at 16:9); +10% margin and slack.
+        double playerHorizontal = Math.toDegrees(2 * Math.atan(Math.tan(Math.toRadians(35)) * 16.0 / 9.0));
+        assertTrue(visible <= playerHorizontal + 15, "visible-region framing stays near the player's own FOV: " + visible);
+        assertTrue(whole - visible > 35, "and is much narrower than whole-mirror framing");
+    }
+
+    @Test
+    void visibleRegionEmptyWhenBehindCamera() {
+        MirrorGeometry g = bigMirror();
+        V3 eye = g.center().add(new V3(0, 0, 3)); // past the mirror, looking further south, away from it
+        assertEquals(0, PlanarMath.visibleRegion(g.corners(), viewProjLookingSouth(), eye, 0.1).length);
+    }
+
+    @Test
+    void screenExtentForFullScreenMirrorIsScreenWidth() {
+        MirrorGeometry g = bigMirror();
+        V3 eye = g.center().add(new V3(0, 0, -0.4));
+        double[] vp = viewProjLookingSouth();
+        V3[] region = PlanarMath.visibleRegion(g.corners(), vp, eye, 0.0);
+        double px = PlanarMath.screenExtentPixels(region, vp, eye, 1920, 1080);
+        assertEquals(1920, px, 1.0);
+        assertEquals(2048, MirrorView.resolutionForPixels(px, 1.0, 64, 2048));
+    }
 }

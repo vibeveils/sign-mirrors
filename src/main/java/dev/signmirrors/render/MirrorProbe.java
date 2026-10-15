@@ -36,6 +36,8 @@ public final class MirrorProbe {
     public net.minecraft.world.phys.Vec3 planarOrigin;
     /** Planar: the player's eye position the capture was made for. */
     public net.minecraft.world.phys.Vec3 planarEye;
+    /** Planar: the player's look direction the capture was made for (the framed region follows it). */
+    public net.minecraft.world.phys.Vec3 planarLook;
     private final Key key;
     private final RenderTarget[] faces = new RenderTarget[CubeFace.values().length];
     private final long[] capturedFrame = new long[CubeFace.values().length];

@@ -26,14 +26,25 @@ public final class PlanarMath {
 
     /** Aims a camera at {@code eye} toward the mirror's centre with just enough FOV to see all corners. */
     public static Aim aim(V3 eye, MirrorGeometry g) {
-        V3 dir = g.center().sub(eye).normalize();
+        return aim(eye, g.corners());
+    }
+
+    /**
+     * Aims a camera at {@code eye} toward the middle of {@code points} with just enough square FOV to
+     * see all of them. Used with the on-screen part of the mirror, so the render's texels go where
+     * they're seen.
+     */
+    public static Aim aim(V3 eye, V3[] points) {
+        V3 sum = V3.ZERO;
+        for (V3 p : points) sum = sum.add(p.sub(eye).normalize());
+        V3 dir = sum.normalize();
         double pitch = Math.toDegrees(-Math.asin(Math.max(-1, Math.min(1, dir.y()))));
         pitch = Math.max(-89.0, Math.min(89.0, pitch));
         double yaw = Math.toDegrees(Math.atan2(-dir.x(), dir.z()));
         V3[] basis = CameraBasis.of((float) yaw, (float) pitch);
         V3 f = basis[0], r = basis[1], u = basis[2];
         double maxTan = 0;
-        for (V3 c : g.corners()) {
+        for (V3 c : points) {
             V3 v = c.sub(eye);
             double z = v.dot(f);
             if (z <= 1e-3) return new Aim((float) yaw, (float) pitch, MAX_FOV_DEGREES);
@@ -41,6 +52,60 @@ public final class PlanarMath {
         }
         double fov = Math.toDegrees(2 * Math.atan(maxTan)) * 1.04 + 1.0; // a little slack for filtering
         return new Aim((float) yaw, (float) pitch, Math.max(10, Math.min(MAX_FOV_DEGREES, fov)));
+    }
+
+    /**
+     * The part of a mirror quad inside a view frustum, as a convex polygon in world space (empty if
+     * none of it is in view). {@code viewProj} is projection x view for camera-relative positions;
+     * {@code margin} widens the frustum (0.1 = 10%) so the region still covers the view after a
+     * little movement or turning.
+     */
+    public static V3[] visibleRegion(V3[] quad, double[] viewProj, V3 cam, double margin) {
+        java.util.List<V3> poly = new java.util.ArrayList<>(java.util.List.of(quad));
+        double k = 1 + margin;
+        // Planes as (a, b, c, d) acting on clip coords: a*x + b*y + c*z + d*w >= 0
+        double[][] planes = {
+                {-1, 0, 0, k}, {1, 0, 0, k}, {0, -1, 0, k}, {0, 1, 0, k}, // |x|, |y| <= k*w
+                {0, 0, 0, 1},                                             // in front of the eye
+        };
+        for (double[] pl : planes) {
+            double bias = pl == planes[4] ? -1e-3 : 0; // w >= small epsilon
+            java.util.List<V3> out = new java.util.ArrayList<>();
+            int n = poly.size();
+            for (int i = 0; i < n; i++) {
+                V3 a = poly.get(i), b = poly.get((i + 1) % n);
+                double da = side(pl, viewProj, a, cam) + bias, db = side(pl, viewProj, b, cam) + bias;
+                if (da >= 0) out.add(a);
+                if ((da >= 0) != (db >= 0)) {
+                    double t = da / (da - db);
+                    out.add(a.add(b.sub(a).mul(t)));
+                }
+            }
+            poly = out;
+            if (poly.isEmpty()) break;
+        }
+        return poly.toArray(new V3[0]);
+    }
+
+    private static double side(double[] plane, double[] viewProj, V3 p, V3 cam) {
+        double[] c = mul(viewProj, new double[] {p.x() - cam.x(), p.y() - cam.y(), p.z() - cam.z(), 1});
+        return plane[0] * c[0] + plane[1] * c[1] + plane[2] * c[2] + plane[3] * c[3];
+    }
+
+    /**
+     * Largest on-screen extent, in pixels, of a world-space polygon (already inside the view).
+     */
+    public static double screenExtentPixels(V3[] poly, double[] viewProj, V3 cam, int width, int height) {
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+        for (V3 p : poly) {
+            double[] c = mul(viewProj, new double[] {p.x() - cam.x(), p.y() - cam.y(), p.z() - cam.z(), 1});
+            if (c[3] <= 1e-6) continue;
+            double x = Math.max(-1, Math.min(1, c[0] / c[3])), y = Math.max(-1, Math.min(1, c[1] / c[3]));
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        }
+        if (minX > maxX) return 0;
+        return Math.max((maxX - minX) * 0.5 * width, (maxY - minY) * 0.5 * height);
     }
 
     /**

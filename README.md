@@ -35,7 +35,8 @@ Choose in Options → General → *Reflection technique*.
 
 - **Planar (exact, default).** A flat mirror seen from your eye shows the real world as seen from your
   eye reflected through the mirror plane. For each mirror the mod renders the world once from that
-  reflected eye, aimed at the mirror with just enough field of view to cover it, and clips everything
+  reflected eye, framing only the part of the mirror that's on your screen (plus a margin), at a
+  resolution matching that part's size on screen — so close-ups stay sharp — and clips everything
   behind the mirror plane (the wall and the room behind it) with an oblique near plane. The mirror
   shader then projects each pixel into that render. Geometry is exact at every point of the mirror,
   including its edges, the floor in front of it and you. Because the image depends on where your eye
@@ -84,10 +85,10 @@ installed, open Mods → Sign Mirrors → Configure. Without them, edit `config/
 
 | Preset | Face resolution | Scale | Updates/frame | Mirrors at once | Distance | Mirror-in-mirror | Off-screen refresh |
 |---|---|---|---|---|---|---|---|
-| Low | 32–128 | 50% | 1 | 2 | 32 | off | off |
-| Medium | 64–256 | 75% | 2 | 4 | 48 | on | off |
-| **High** (default) | 64–512 | 100% | 3 | 6 | 64 | on | on |
-| Ultra | 128–1024 | 125% | 5 | 8 | 96 | on | on |
+| Low | 64–256 | 50% | 1 | 2 | 32 | off | off |
+| Medium | 64–512 | 75% | 2 | 4 | 48 | on | off |
+| **High** (default) | 128–1024 | 100% | 3 | 6 | 64 | on | on |
+| Ultra | 128–2048 | 100% | 5 | 8 | 96 | on | on |
 | Custom | your settings | | | | | | |
 
 Changing any Quality/Performance setting yourself switches the preset to Custom.

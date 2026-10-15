@@ -39,6 +39,10 @@ public final class Mirror {
     public double weight;
     /** Cube faces the reflection samples from the current viewpoint (bit per CubeFace). */
     public int visibleFaceMask;
+    /** The part of the mirror inside the player's view (slightly widened), in world space. */
+    public dev.signmirrors.core.V3[] visibleRegion;
+    /** Largest on-screen extent of that region, in pixels. */
+    public double screenExtentPx;
     /** Resolution the probe is moving to, and how many frames the LOD has asked for it. */
     public int targetResolution;
     public int targetStableFrames;
