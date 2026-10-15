@@ -8,7 +8,9 @@ layout(std140) uniform MirrorInfo {
     vec4 BoxMin;
     vec4 BoxMax;
     vec4 MirrorNormal;
-    vec4 Params;
+    vec4 Params;         // x: 1/faceResolution, y: reflectivity, z: flip V (0/1), w: 1 = planar
+    mat4 PlanarViewProj; // planar: projection x view of the reflected-eye render
+    vec4 PlanarOrigin;   // planar: that render's camera, relative to this view's camera
 };
 
 // One texture per cube face, each rendered by a 90-degree capture camera (see CubeFace.java).
@@ -50,7 +52,22 @@ vec3 safeDir(vec3 r) {
                 abs(r.z) < EPS ? EPS : r.z);
 }
 
+// Planar mirrors: this pixel's world position projected into the render made from the eye reflected
+// through the mirror. That render looked through exactly this pixel, so this is the exact reflection.
+vec3 planarReflection() {
+    vec4 clip = PlanarViewProj * vec4(relPos - PlanarOrigin.xyz, 1.0);
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    float halfTexel = 0.5 * Params.x;
+    uv = clamp(uv, vec2(halfTexel), vec2(1.0 - halfTexel));
+    if (Params.z > 0.5) uv.y = 1.0 - uv.y;
+    return texture(FacePosX, uv).rgb;
+}
+
 void main() {
+    if (Params.w > 0.5) {
+        fragColor = vec4(planarReflection() * Params.y, 1.0);
+        return;
+    }
     vec3 n = normalize(MirrorNormal.xyz);
     vec3 view = normalize(relPos);
     vec3 r = reflect(view, n);

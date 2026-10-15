@@ -25,13 +25,37 @@ public final class MirrorProbe {
     private static final Map<Key, Deque<RenderTarget>> POOL = new HashMap<>();
 
     public final int resolution;
+    /**
+     * Planar mode: a single render from the mirror-reflected eye (stored in the first face slot),
+     * looked up projectively with {@link #planarViewProj} instead of as a cube map.
+     */
+    public final boolean planar;
+    /** Planar: projection x view of the capture, for positions relative to {@link #planarOrigin}. */
+    public org.joml.Matrix4f planarViewProj;
+    /** Planar: the virtual camera position the capture was rendered from. */
+    public net.minecraft.world.phys.Vec3 planarOrigin;
+    /** Planar: the player's eye position the capture was made for. */
+    public net.minecraft.world.phys.Vec3 planarEye;
     private final Key key;
     private final RenderTarget[] faces = new RenderTarget[CubeFace.values().length];
     private final long[] capturedFrame = new long[CubeFace.values().length];
     private int capturedMask;
 
+    /** A planar-reflection probe: one square target. */
+    public static MirrorProbe planar(int resolution, GpuFormat colorFormat, GpuFormat depthFormat) {
+        return new MirrorProbe(resolution, colorFormat, depthFormat, List.of(PLANAR_SLOT), true);
+    }
+
+    /** The face slot a planar probe keeps its single render in. */
+    public static final CubeFace PLANAR_SLOT = CubeFace.POS_X;
+
     public MirrorProbe(int resolution, GpuFormat colorFormat, GpuFormat depthFormat, List<CubeFace> neededFaces) {
+        this(resolution, colorFormat, depthFormat, neededFaces, false);
+    }
+
+    private MirrorProbe(int resolution, GpuFormat colorFormat, GpuFormat depthFormat, List<CubeFace> neededFaces, boolean planar) {
         this.resolution = resolution;
+        this.planar = planar;
         this.key = new Key(resolution, colorFormat, depthFormat);
         Deque<RenderTarget> pool = POOL.computeIfAbsent(key, k -> new ArrayDeque<>());
         for (CubeFace face : neededFaces) {

@@ -8,7 +8,9 @@ layout(std140) uniform MirrorInfo {
     vec4 BoxMin;        // camera-relative proxy box
     vec4 BoxMax;
     vec4 MirrorNormal;  // world-space unit normal of the reflective face
-    vec4 Params;        // x: 1/faceResolution, y: reflectivity, z: flip face V (0/1)
+    vec4 Params;        // x: 1/faceResolution, y: reflectivity, z: flip face V (0/1), w: 1 = planar
+    mat4 PlanarViewProj; // planar: projection x view of the reflected-eye render
+    vec4 PlanarOrigin;   // planar: that render's camera, relative to this view's camera
 };
 
 layout(location = 0) in vec3 Position;

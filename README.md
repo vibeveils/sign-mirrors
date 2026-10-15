@@ -29,6 +29,22 @@ Wall signs put the mirror flush against the wall behind them (just proud of the 
 it hides). Standing and ceiling-hanging signs put it through the middle of the block, facing the
 same way as the text. Wall-hanging signs are not supported.
 
+## Reflection techniques
+
+Choose in Options → General → *Reflection technique*.
+
+- **Planar (exact, default).** A flat mirror seen from your eye shows the real world as seen from your
+  eye reflected through the mirror plane. For each mirror the mod renders the world once from that
+  reflected eye, aimed at the mirror with just enough field of view to cover it, and clips everything
+  behind the mirror plane (the wall and the room behind it) with an oblique near plane. The mirror
+  shader then projects each pixel into that render. Geometry is exact at every point of the mirror,
+  including its edges, the floor in front of it and you. Because the image depends on where your eye
+  is, it is re-rendered whenever you move (within the per-frame budget, most important mirrors first).
+- **Cube map (approximate).** The original design: a cube map rendered from a fixed point in front of
+  the mirror, sampled with parallax correction against a box approximating the room. It can be reused
+  while you move, but anything that isn't on the room's walls — the floor close to the mirror,
+  furniture, you — is distorted, increasingly toward the mirror's edges. That's inherent to the technique.
+
 ## How it works
 
 1. **Tracking** — `MirrorTracker` follows every loaded sign block entity, including signs already in
@@ -49,14 +65,15 @@ same way as the text. Wall-hanging signs are not supported.
    - *Visible faces* — the same reflect-and-parallax maths as the shader, run on a grid over the
      mirror, finds which cube faces the reflection actually reads from where you're standing.
      Usually that's only one to three faces.
-4. **Secondary camera** — the budget (*Reflection updates per frame*) goes to the highest-priority
-   faces: never-captured visible faces first (a few may exceed the budget so new mirrors fill in
+4. **Secondary camera** — the budget (*Reflection renders per frame*) goes to the highest-priority
+   renders. Planar: one render per mirror, urgent whenever your eye has moved. Cube map: per face, never-captured visible faces first (a few may exceed the budget so new mirrors fill in
    at once), then visible faces by staleness, then occasionally the faces you can't currently see.
    Each face is a vanilla `extract` + `renderLevel` pass from the probe entity, at exactly 90° x 90°,
    straight into that face's render target. The hand, view bobbing, block outline and clouds are
    suppressed, and you appear in the reflection.
-5. **Parallax-corrected lookup** — the mirror's fragment shader reflects the view ray, finds where it
-   exits the proxy box, and samples the cube faces from the probe toward that point.
+5. **Lookup** — planar: the mirror's fragment shader projects the pixel into the reflected-eye render.
+   Cube map: it reflects the view ray, finds where it exits the proxy box, and samples the cube faces
+   from the probe toward that point.
 6. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
    inside captures (frustum-culled per view), so facing mirrors show each other one frame behind.
 
@@ -137,8 +154,10 @@ instead of crashing the game.
 
 ## Known limitations
 
-- Parallax correction assumes a box-shaped room. Odd shapes, and objects in the middle of the room,
-  will be slightly off — that's inherent to the technique.
+- Cube-map mode: parallax correction assumes a box-shaped room, so objects that aren't on its walls
+  are distorted. Planar mode (the default) doesn't have this problem.
+- Planar mode: when your eye moves faster than the budget can re-render every visible mirror, less
+  important mirrors show the previous position's view for a frame or two.
 - Each face update is a full world render. Lower *Reflection updates per frame* or the resolution
   settings (or pick a lower preset) if frame rate suffers. Reflections refresh by priority, so
   fast-moving things in reflections update less often than the main view.

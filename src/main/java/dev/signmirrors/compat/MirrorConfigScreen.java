@@ -37,6 +37,11 @@ final class MirrorConfigScreen {
         general.addEntry(e.startBooleanToggle(t("enabled"), cfg.enabled)
                 .setDefaultValue(true).setTooltip(t("enabled.tooltip"))
                 .setSaveConsumer(v -> cfg.enabled = v).build());
+        general.addEntry(e.startEnumSelector(t("technique"), MirrorConfig.Technique.class, cfg.technique)
+                .setDefaultValue(defaults.technique)
+                .setEnumNameProvider(v -> t("technique." + v.name().toLowerCase()))
+                .setTooltip(t("technique.tooltip"))
+                .setSaveConsumer(v -> cfg.technique = v).build());
         general.addEntry(e.startEnumSelector(t("preset"), MirrorConfig.Preset.class, cfg.preset)
                 .setDefaultValue(defaults.preset)
                 .setEnumNameProvider(p -> t("preset." + p.name().toLowerCase()))

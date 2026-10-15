@@ -25,9 +25,9 @@ public abstract class GameRendererMixin {
     }
 
     /**
-     * Every level render uploads its projection here. During a mirror capture, force an exact
-     * 90 x 90 degree projection (whatever FOV/aspect the game computed), and remember the projection
-     * actually used so mirrors drawn in this view line up exactly.
+     * Every level render uploads its projection here. During a mirror capture, replace it with the
+     * capture's projection (exact square field of view; planar views also get an oblique near plane on
+     * the mirror), and remember the projection actually used so mirrors drawn in this view line up.
      */
     @WrapOperation(method = "renderLevel",
             at = @At(value = "INVOKE",
@@ -35,9 +35,13 @@ public abstract class GameRendererMixin {
             require = 1)
     private GpuBufferSlice signmirrors$recordProjection(ProjectionMatrixBuffer instance, Matrix4f projection,
                                                        Operation<GpuBufferSlice> original) {
-        Matrix4f used = MirrorCapture.isCapturing() ? MirrorCapture.cubeFaceProjection(projection) : projection;
+        Matrix4f used = MirrorCapture.isCapturing() ? MirrorCapture.captureProjection(projection) : projection;
         MirrorDrawer.recordProjection(used);
-        return original.call(instance, used);
+        GpuBufferSlice result = original.call(instance, used);
+        // Sodium records the projection at this same call for its terrain; depending on mixin order it may
+        // have seen the unmodified one, so hand it the capture projection directly.
+        if (MirrorCapture.isCapturing()) MirrorCapture.syncSodiumProjection((GameRenderer) (Object) this, used);
+        return result;
     }
 
     @WrapOperation(method = "renderLevel",

@@ -47,8 +47,8 @@ public final class MirrorDrawer {
     /** Names must match mirror.fsh / mirror.vsh. */
     static final String[] FACE_SAMPLERS = {"FacePosX", "FaceNegX", "FacePosY", "FaceNegY", "FacePosZ", "FaceNegZ"};
 
-    /** std140 MirrorInfo: mat4 ProjMat, mat4 ModelViewMat, then five vec4s. */
-    private static final int UNIFORM_SIZE = 64 + 64 + 5 * 16;
+    /** std140 MirrorInfo: mat4 ProjMat, mat4 ModelViewMat, five vec4s, mat4 PlanarViewProj, vec4 PlanarOrigin. */
+    private static final int UNIFORM_SIZE = 64 + 64 + 5 * 16 + 64 + 16;
 
     private static final BindGroupLayout LAYOUT = buildLayout();
 
@@ -66,6 +66,7 @@ public final class MirrorDrawer {
 
     /** The projection actually used for the current level render (includes view bobbing). */
     private static Matrix4f frameProjection;
+    private static final Matrix4f IDENTITY = new Matrix4f();
     private static Matrix4f mainViewProjection;
     private static Vec3 mainCameraPosition;
 
@@ -79,6 +80,11 @@ public final class MirrorDrawer {
 
     private static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath(SignMirrorsClient.MOD_ID, path);
+    }
+
+    /** The projection recorded for the most recent level render (the capture's, during a capture). */
+    static Matrix4f lastProjection() {
+        return frameProjection == null ? null : new Matrix4f(frameProjection);
     }
 
     /** projection x view of the player's last rendered view (camera-relative), or null before the first frame. */
@@ -189,6 +195,7 @@ public final class MirrorDrawer {
     private static GpuBuffer writeUniforms(Mirror m, Vec3 cam, Matrix4f projection, Matrix4f modelView, MirrorConfig cfg) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer data = stack.calloc(UNIFORM_SIZE);
+            boolean planar = m.probe.planar && m.probe.planarViewProj != null && m.probe.planarOrigin != null;
             V3 p = m.geometry.probe(), n = m.geometry.normal();
             V3 bmin = m.box.min(), bmax = m.box.max();
             Std140Builder.intoBuffer(data)
@@ -198,7 +205,11 @@ public final class MirrorDrawer {
                     .putVec4((float) (bmin.x() - cam.x), (float) (bmin.y() - cam.y), (float) (bmin.z() - cam.z), 0f)
                     .putVec4((float) (bmax.x() - cam.x), (float) (bmax.y() - cam.y), (float) (bmax.z() - cam.z), 0f)
                     .putVec4((float) n.x(), (float) n.y(), (float) n.z(), 0f)
-                    .putVec4(1f / m.probe.resolution, cfg.reflectivity, cfg.flipFaceV ? 1f : 0f, 0f);
+                    .putVec4(1f / m.probe.resolution, cfg.reflectivity, cfg.flipFaceV ? 1f : 0f, planar ? 1f : 0f)
+                    .putMat4f(planar ? m.probe.planarViewProj : IDENTITY)
+                    .putVec4(planar ? (float) (m.probe.planarOrigin.x - cam.x) : 0f,
+                             planar ? (float) (m.probe.planarOrigin.y - cam.y) : 0f,
+                             planar ? (float) (m.probe.planarOrigin.z - cam.z) : 0f, 0f);
             // Std140Builder may use relative puts; hand the whole block over either way.
             data.position(0).limit(UNIFORM_SIZE);
             return RenderSystem.getDevice().createBuffer(() -> "signmirrors MirrorInfo",

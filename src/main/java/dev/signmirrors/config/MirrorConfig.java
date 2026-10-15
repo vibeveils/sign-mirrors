@@ -17,8 +17,16 @@ import java.nio.file.Path;
 public class MirrorConfig {
     public enum Preset { LOW, MEDIUM, HIGH, ULTRA, CUSTOM }
 
+    /**
+     * PLANAR: exact reflections, one render per mirror from your reflected eye; re-rendered as you move.
+     * CUBE_MAP: parallax-corrected cube map from a fixed probe; approximate (distorts things that
+     * aren't on the room's walls) but reusable while you move.
+     */
+    public enum Technique { PLANAR, CUBE_MAP }
+
     public boolean enabled = true;
     public Preset preset = Preset.HIGH;
+    public Technique technique = Technique.PLANAR;
 
     // ---- Quality (set by preset unless CUSTOM) ----
     /** Smallest cube-face resolution, used for small or distant mirrors. Power of two. */
@@ -95,6 +103,7 @@ public class MirrorConfig {
 
     public void applyPresetAndSanitize() {
         if (preset == null) preset = Preset.HIGH;
+        if (technique == null) technique = Technique.PLANAR;
         switch (preset) {
             case LOW -> set(32, 128, 0.5f, false, false, 1, 2, 32);
             case MEDIUM -> set(64, 256, 0.75f, false, true, 2, 4, 48);
