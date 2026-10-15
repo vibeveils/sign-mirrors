@@ -6,6 +6,7 @@ import dev.signmirrors.SignMirrorsClient;
 import dev.signmirrors.config.MirrorConfig;
 import dev.signmirrors.core.CubeFace;
 import dev.signmirrors.core.V3;
+import dev.signmirrors.mixin.CameraAccessor;
 import dev.signmirrors.mixin.GameRendererAccessor;
 import dev.signmirrors.mixin.LevelExtractorAccessor;
 import dev.signmirrors.world.Mirror;
@@ -40,6 +41,7 @@ public final class MirrorCapture {
     private static int mirrorCursor;
     private static ProbeEntity probeEntity;
     private static boolean levelExtracted;
+    private static boolean warnedPose;
 
     private MirrorCapture() {}
 
@@ -86,6 +88,10 @@ public final class MirrorCapture {
         Entity savedCameraEntity = mc.getCameraEntity();
         CameraType savedCameraType = mc.options.getCameraType();
         boolean savedSmartCull = mc.smartCull;
+        CameraAccessor cameraAccess = (CameraAccessor) camera;
+        Entity savedCameraOwnEntity = cameraAccess.signmirrors$entity();
+        float savedEyeHeight = cameraAccess.signmirrors$eyeHeight();
+        float savedEyeHeightOld = cameraAccess.signmirrors$eyeHeightOld();
 
         captureResolution = res;
         capturing = true;
@@ -93,6 +99,11 @@ public final class MirrorCapture {
             mc.options.setCameraType(CameraType.FIRST_PERSON);
             if (cfg.disableOcclusionCullingDuringCapture) mc.smartCull = false;
             mc.setCameraEntity(probeEntity);
+            // The camera follows its own entity field, not Minecraft's camera entity, so attach it directly,
+            // and drop the player's eye height (the marker's eye is at its position).
+            cameraAccess.signmirrors$setEntity(probeEntity);
+            cameraAccess.signmirrors$setEyeHeight(0f);
+            cameraAccess.signmirrors$setEyeHeightOld(0f);
 
             for (int i = 0; i < cfg.facesPerFrame; i++) {
                 Mirror mirror = active.get(mirrorCursor++ % active.size());
@@ -137,6 +148,9 @@ public final class MirrorCapture {
         } finally {
             accessor.signmirrors$setMainRenderTarget(mainTarget);
             mc.setCameraEntity(savedCameraEntity);
+            cameraAccess.signmirrors$setEntity(savedCameraOwnEntity);
+            cameraAccess.signmirrors$setEyeHeight(savedEyeHeight);
+            cameraAccess.signmirrors$setEyeHeightOld(savedEyeHeightOld);
             mc.options.setCameraType(savedCameraType);
             mc.smartCull = savedSmartCull;
             capturing = false;
@@ -158,6 +172,12 @@ public final class MirrorCapture {
         if (error.lengthSqr() > 1e-8) {
             probeEntity.pose(want.add(error), face.yaw, face.pitch);
             camera.update(deltaTracker);
+        }
+        double off = camera.position().distanceTo(want);
+        if (off > 0.05 && !warnedPose) {
+            warnedPose = true;
+            SignMirrorsClient.LOGGER.warn("Mirror camera landed {} blocks from its probe point (camera at {}, wanted {})",
+                    String.format("%.2f", off), camera.position(), want);
         }
     }
 

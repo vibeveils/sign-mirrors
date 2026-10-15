@@ -4,10 +4,12 @@
   "package": "dev.signmirrors.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "CameraAccessor",
     "CameraMixin",
     "GameRendererAccessor",
     "GameRendererMixin",
     "LevelExtractorAccessor",
+    "LevelExtractorPlayerMixin",
     "SignBlockEntityAccessor",
     "WindowMixin"
   ],
