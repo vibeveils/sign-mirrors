@@ -7,6 +7,7 @@ import dev.signmirrors.config.MirrorConfig;
 import dev.signmirrors.core.CubeFace;
 import dev.signmirrors.core.V3;
 import dev.signmirrors.mixin.GameRendererAccessor;
+import dev.signmirrors.mixin.LevelExtractorAccessor;
 import dev.signmirrors.world.Mirror;
 import dev.signmirrors.world.MirrorTracker;
 import net.minecraft.client.Camera;
@@ -38,12 +39,18 @@ public final class MirrorCapture {
     private static int captureResolution = 256;
     private static int mirrorCursor;
     private static ProbeEntity probeEntity;
+    private static boolean levelExtracted;
 
     private MirrorCapture() {}
 
     public static boolean isCapturing() { return capturing; }
     public static int resolution() { return captureResolution; }
     public static Mirror currentMirror() { return currentMirror; }
+
+    /** Fabric LevelExtractionEvents.END_EXTRACTION: proves the level was actually extracted for a capture. */
+    public static void onLevelExtracted() {
+        if (capturing) levelExtracted = true;
+    }
 
     /** Called at the head of GameRenderer.extract for the player's frame. */
     public static void runCaptures(GameRenderer gameRenderer) {
@@ -101,8 +108,25 @@ public final class MirrorCapture {
                 accessor.signmirrors$setMainRenderTarget(mirror.probe.face(face));
                 poseCamera(camera, deltaTracker, mirror.geometry.probe(), face);
 
+                levelExtracted = false;
                 gameRenderer.extract(deltaTracker, false);
-                squareProjection(accessor.signmirrors$gameRenderState().levelRenderState.cameraRenderState);
+                if (!levelExtracted) {
+                    // GameRenderer.extract can skip the level (it did on 26.3 with advanceGameTime=false);
+                    // run the level extraction for the probe camera directly.
+                    ((LevelExtractorAccessor) mc.levelExtractor).signmirrors$extract(deltaTracker, camera,
+                            deltaTracker.getGameTimeDeltaPartialTick(false));
+                }
+                if (!levelExtracted) {
+                    // Rendering now would draw stale state (and breaks Sodium), so stop safely instead.
+                    SignMirrorsClient.LOGGER.error("Level extraction did not run for the mirror camera; disabling mirrors");
+                    cfg.enabled = false;
+                    break;
+                }
+
+                CameraRenderState cameraState = accessor.signmirrors$gameRenderState().levelRenderState.cameraRenderState;
+                camera.extractRenderState(cameraState, deltaTracker);
+                squareProjection(cameraState);
+                SodiumCompat.beforeExtraLevelRender();
                 accessor.signmirrors$renderLevel();
 
                 mirror.capturedFaces |= 1 << face.ordinal();

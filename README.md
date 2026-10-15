@@ -122,4 +122,6 @@ instead of crashing the game.
   may be missing, and chunk visibility may flicker; with it on, captures cost more CPU.
 - Translucent blocks (water, glass) *in front of* a mirror get drawn over by the mirror, because
   mirrors are drawn after the world.
-- Shader packs (Iris) and Sodium replace parts of the world pipeline; combinations with them are untested.
+- Sodium: supported. Sodium assumes one level render per frame, so before each capture the mod resets
+  Sodium's per-frame terrain uniforms (`render/SodiumCompat`, via reflection — no compile dependency).
+- Shader packs (Iris) replace the world pipeline and are untested.
