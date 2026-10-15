@@ -24,15 +24,20 @@ public abstract class GameRendererMixin {
         if (!MirrorCapture.isCapturing()) MirrorCapture.runCaptures((GameRenderer) (Object) this);
     }
 
-    /** Remember the projection actually used for this level render, so mirrors line up exactly. */
+    /**
+     * Every level render uploads its projection here. During a mirror capture, force an exact
+     * 90 x 90 degree projection (whatever FOV/aspect the game computed), and remember the projection
+     * actually used so mirrors drawn in this view line up exactly.
+     */
     @WrapOperation(method = "renderLevel",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/client/renderer/ProjectionMatrixBuffer;getBuffer(Lorg/joml/Matrix4f;)Lcom/mojang/renderpearl/api/buffers/GpuBufferSlice;"),
-            require = 0)
+            require = 1)
     private GpuBufferSlice signmirrors$recordProjection(ProjectionMatrixBuffer instance, Matrix4f projection,
                                                        Operation<GpuBufferSlice> original) {
-        MirrorDrawer.recordProjection(projection);
-        return original.call(instance, projection);
+        Matrix4f used = MirrorCapture.isCapturing() ? MirrorCapture.cubeFaceProjection(projection) : projection;
+        MirrorDrawer.recordProjection(used);
+        return original.call(instance, used);
     }
 
     @WrapOperation(method = "renderLevel",

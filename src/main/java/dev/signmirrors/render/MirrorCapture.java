@@ -42,6 +42,7 @@ public final class MirrorCapture {
     private static ProbeEntity probeEntity;
     private static boolean levelExtracted;
     private static boolean warnedPose;
+    private static boolean loggedProjection;
 
     private MirrorCapture() {}
 
@@ -181,10 +182,30 @@ public final class MirrorCapture {
         }
     }
 
-    /** Forces a 1:1 aspect ratio while keeping the backend's depth/handedness conventions intact. */
+    /** Applies the exact cube-face projection to the extracted camera state too (used for the mirror pass). */
     private static void squareProjection(CameraRenderState state) {
-        Matrix4f p = new Matrix4f(state.projectionMatrix);
-        p.m00(Math.copySign(Math.abs(p.m11()), p.m00()));
-        state.projectionMatrix = p;
+        state.projectionMatrix = cubeFaceProjection(new Matrix4f(state.projectionMatrix));
+    }
+
+    /**
+     * Turns whatever perspective projection the game built into an exact 90 x 90 degree one:
+     * both focal terms become 1 (tan 45 = 1) and any skew or off-centre terms are cleared, while the
+     * depth terms are kept, so the backend's depth range, reverse-Z and handedness stay intact.
+     */
+    public static Matrix4f cubeFaceProjection(Matrix4f in) {
+        if (!loggedProjection) {
+            loggedProjection = true;
+            // m11 = 1/tan(vfov/2), m00 = m11/aspect: tells us what FOV/aspect vanilla built for the probe.
+            SignMirrorsClient.LOGGER.info("Mirror capture projection before correction: m00={} m11={} (exact 90x90 is 1, 1)",
+                    in.m00(), in.m11());
+        }
+        Matrix4f p = new Matrix4f(in);
+        p.m00(Math.copySign(1f, in.m00()));
+        p.m11(Math.copySign(1f, in.m11()));
+        p.m01(0f);
+        p.m10(0f);
+        p.m20(0f);
+        p.m21(0f);
+        return p;
     }
 }
