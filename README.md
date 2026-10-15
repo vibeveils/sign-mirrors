@@ -104,8 +104,8 @@ Fabric API, Iris, Sodium and Tweakeroo's 26.3 branches:
 | `mixin/GameRendererMixin` (`ProjectionMatrixBuffer.getBuffer`, `bobView`) | Sodium and Tweakeroo `GameRenderer` mixins |
 | End-of-world-pass hook | Fabric API `LevelRenderEvents.END_MAIN` |
 
-Sign text is read through a small reflection helper (`world/SignTextReader`) because 26.3 reworked
-the sign text accessors around `SignTextSlot`; the game is unobfuscated, so this is reliable.
+26.3 has no public getter for sign text, so `mixin/SignBlockEntityAccessor` reads the private
+`frontText` field (the same field Tweakeroo's 26.3 sign-copy feature uses).
 
 If a capture throws at runtime, mirrors disable themselves for the session and the error is logged
 instead of crashing the game.
