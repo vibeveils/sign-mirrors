@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "signmirrors",
+  "version": "${version}",
+  "name": "Sign Mirrors",
+  "description": "Client-side: signs that say [Mirror] become real-time mirrors, using parallax-corrected cube maps rendered from a secondary camera.",
+  "authors": ["codedcells"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.signmirrors.SignMirrorsClient"]
+  },
+  "mixins": [
+    "signmirrors.mixins.json",
+    "signmirrors.optional.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
