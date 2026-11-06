@@ -14,6 +14,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.sprite.SpriteId;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.List;
 
@@ -37,15 +38,39 @@ public final class FrameRenderer {
         });
     }
 
+    /**
+     * The frame's texture: a fixed material; the sign's own planks; or (like Signed Paintings' block
+     * back) the particle texture of the block the sign is attached to, falling back to the sign's own
+     * texture if that block is air.
+     */
     private static TextureAtlasSprite sprite(Mirror mirror) {
+        Minecraft mc = Minecraft.getInstance();
         MirrorSettings.Frame frame = mirror.settings.frame;
+        if (frame == MirrorSettings.Frame.NONE) return null;
+        if (frame == MirrorSettings.Frame.BLOCK) {
+            BlockState support = mc.level != null && mirror.supportPos != null ? mc.level.getBlockState(mirror.supportPos) : null;
+            if (support == null || support.isAir()) support = signState(mc, mirror);
+            return support == null ? null : particle(mc, support);
+        }
         String texture = frame == MirrorSettings.Frame.SIGN_WOOD ? "block/" + mirror.woodType + "_planks" : frame.texture;
-        if (texture == null) return null;
         try {
-            return Minecraft.getInstance().getAtlasManager().get(
-                    new SpriteId(BLOCK_ATLAS, Identifier.fromNamespaceAndPath("minecraft", texture)));
+            return mc.getAtlasManager().get(new SpriteId(BLOCK_ATLAS, Identifier.fromNamespaceAndPath("minecraft", texture)));
         } catch (RuntimeException e) {
-            return null; // modded wood without planks of that name, etc.
+            // Modded wood without planks of that name: use the sign's own texture.
+            BlockState sign = signState(mc, mirror);
+            return sign == null ? null : particle(mc, sign);
+        }
+    }
+
+    private static BlockState signState(Minecraft mc, Mirror mirror) {
+        return mc.level != null ? mc.level.getBlockState(mirror.pos) : null;
+    }
+
+    private static TextureAtlasSprite particle(Minecraft mc, BlockState state) {
+        try {
+            return mc.getModelManager().getBlockStateModelSet().getParticleMaterial(state).sprite();
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

@@ -67,6 +67,9 @@ final class MirrorConfigScreen {
         quality.addEntry(e.startBooleanToggle(t("recursiveMirrors"), cfg.recursiveMirrors)
                 .setDefaultValue(defaults.recursiveMirrors).setTooltip(t("recursiveMirrors.tooltip"))
                 .setSaveConsumer(v -> cfg.recursiveMirrors = v).build());
+        quality.addEntry(e.startIntSlider(t("nestedMirrors"), cfg.nestedMirrors, 0, 4)
+                .setDefaultValue(defaults.nestedMirrors).setTooltip(t("nestedMirrors.tooltip"))
+                .setSaveConsumer(v -> cfg.nestedMirrors = v).build());
 
         // ---- Performance ----
         ConfigCategory perf = builder.getOrCreateCategory(t("category.performance"));

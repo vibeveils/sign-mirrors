@@ -44,7 +44,9 @@ public final class MirrorEditor {
     private final List<AbstractWidget> panelWidgets = new ArrayList<>();
     private final List<InputSlider> sliders = new ArrayList<>();
     private final Button[] alignButtons = new Button[9];
-    private Button makeButton, ratioButton, frameButton, signButton;
+    private Button makeButton, ratioButton, frameButton, signButton, materialPrev, materialButton, materialNext;
+    /** The material last picked, so cycling the frame mode back to "Material" restores it. */
+    private MirrorSettings.Frame lastMaterial = MirrorSettings.Frame.OAK;
     private InputSlider width, height, offX, offY, offZ, yaw, pitch, roll, frameWidth, pixels, opacity, reflectivity;
     private EditBox tintBox;
     private StringWidget swatch, warning, legacyNote;
@@ -146,10 +148,14 @@ public final class MirrorEditor {
         y = TOP;
         label(right, y, "appearance");
         y += ROW;
-        panel(Button.builder(Component.literal("<"), b -> cycleFrame(-1)).bounds(right, y, H, H).build());
-        frameButton = panel(Button.builder(Component.empty(), b -> cycleFrame(1))
+        // Like Signed Paintings: None -> Sign -> Block, plus a choice of fixed materials.
+        frameButton = panel(tip(Button.builder(Component.empty(), b -> cycleFrameMode())
+                .bounds(right, y, PANEL, H).build(), t("frame.tooltip")));
+        y += ROW;
+        materialPrev = panel(Button.builder(Component.literal("<"), b -> cycleMaterial(-1)).bounds(right, y, H, H).build());
+        materialButton = panel(Button.builder(Component.empty(), b -> cycleMaterial(1))
                 .bounds(right + H + 1, y, PANEL - 2 * (H + 1), H).build());
-        panel(Button.builder(Component.literal(">"), b -> cycleFrame(1)).bounds(right + PANEL - H, y, H, H).build());
+        materialNext = panel(Button.builder(Component.literal(">"), b -> cycleMaterial(1)).bounds(right + PANEL - H, y, H, H).build());
         y += ROW;
         frameWidth = slider(right, y, "frame_width", 0.5, MirrorSettings.MAX_FRAME_PX, 0.5, 0.5, MirrorSettings.MAX_FRAME_PX,
                 v -> settings.frameWidth = v);
@@ -276,7 +282,12 @@ public final class MirrorEditor {
         yaw.set(s.yaw);
         pitch.set(s.pitch);
         roll.set(s.roll);
-        frameButton.setMessage(t("frame." + s.frame.key));
+        if (s.frame.isMaterial()) lastMaterial = s.frame;
+        String[] modes = {"none", "sign_wood", "block", "material"};
+        frameButton.setMessage(t("frame." + modes[s.frame.mode()]));
+        materialButton.setMessage(t("material." + lastMaterial.key));
+        boolean material = s.frame.isMaterial();
+        materialPrev.visible = materialButton.visible = materialNext.visible = material;
         frameWidth.set(s.frameWidth);
         frameWidth.setActive(s.frame != MirrorSettings.Frame.NONE);
         pixels.set(s.pixelsPerBlock);
@@ -297,8 +308,18 @@ public final class MirrorEditor {
         changed();
     }
 
-    private void cycleFrame(int step) {
-        settings.frame = settings.frame.next(step);
+    private void cycleFrameMode() {
+        settings.frame = switch (settings.frame.mode()) {
+            case 0 -> MirrorSettings.Frame.SIGN_WOOD;
+            case 1 -> MirrorSettings.Frame.BLOCK;
+            case 2 -> lastMaterial;
+            default -> MirrorSettings.Frame.NONE;
+        };
+        changed();
+    }
+
+    private void cycleMaterial(int step) {
+        settings.frame = lastMaterial.nextMaterial(step);
         changed();
     }
 

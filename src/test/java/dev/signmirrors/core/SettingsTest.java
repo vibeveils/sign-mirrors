@@ -56,6 +56,27 @@ class SettingsTest {
     }
 
     @Test
+    void frameModesRoundTripAndMaterialsCycle() {
+        for (MirrorSettings.Frame f : MirrorSettings.Frame.values()) {
+            MirrorSettings s = new MirrorSettings();
+            s.frame = f;
+            assertEquals(f, MirrorSettings.decode(s.encode()).orElseThrow().frame);
+        }
+        assertEquals(0, MirrorSettings.Frame.NONE.mode());
+        assertEquals(1, MirrorSettings.Frame.SIGN_WOOD.mode());
+        assertEquals(2, MirrorSettings.Frame.BLOCK.mode());
+        assertEquals(3, MirrorSettings.Frame.GOLD.mode());
+        // Cycling materials never lands on NONE / SIGN_WOOD / BLOCK, in either direction.
+        MirrorSettings.Frame f = MirrorSettings.Frame.BLACK_CONCRETE;
+        for (int i = 0; i < 60; i++) {
+            f = f.nextMaterial(i % 3 == 0 ? -1 : 1);
+            assertTrue(f.isMaterial(), f.name());
+        }
+        assertEquals(MirrorSettings.Frame.OAK, MirrorSettings.Frame.BLACK_CONCRETE.nextMaterial(1));
+        assertEquals(MirrorSettings.Frame.BLACK_CONCRETE, MirrorSettings.Frame.OAK.nextMaterial(-1));
+    }
+
+    @Test
     void valuesAreQuantisedAndClamped() {
         MirrorSettings s = new MirrorSettings();
         s.width = 1.03; s.yaw = 10.3; s.offsetX = 99; s.opacity = 140;

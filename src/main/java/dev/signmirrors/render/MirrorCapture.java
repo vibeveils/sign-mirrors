@@ -3,6 +3,8 @@ package dev.signmirrors.render;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.renderpearl.api.GpuFormat;
 import dev.signmirrors.SignMirrorsClient;
+import dev.signmirrors.world.MirrorTracker;
+import dev.signmirrors.core.MirrorView;
 import dev.signmirrors.config.MirrorConfig;
 import dev.signmirrors.core.PlanarMath;
 import dev.signmirrors.core.V3;
@@ -130,6 +132,7 @@ public final class MirrorCapture {
         float savedEyeHeight = cameraAccess.signmirrors$eyeHeight();
         float savedEyeHeightOld = cameraAccess.signmirrors$eyeHeightOld();
 
+        Context ctx = new Context(mc, gameRenderer, accessor, camera, deltaTracker, cfg);
         capturing = true;
         try {
             mc.options.setCameraType(CameraType.FIRST_PERSON);
@@ -144,61 +147,19 @@ public final class MirrorCapture {
 
             for (Job job : jobs) {
                 Mirror mirror = job.mirror();
-                MirrorProbe probe = job.probe();
-                currentMirror = mirror;
-                captureResolution = probe.resolution;
-                accessor.signmirrors$setMainRenderTarget(probe.target());
-
-                // Render the real world from the eye reflected through the mirror plane, aimed at the
-                // mirror, clipping everything on the far side of the plane (the wall and beyond).
-                V3 n = mirror.geometry.normal();
                 V3 eyeV = new V3(eye.x, eye.y, eye.z);
-                V3 virtualEye = PlanarMath.reflectPoint(eyeV, mirror.geometry.center(), n);
-                // Frame only the part of the mirror that's on screen (not the whole mirror), so the
-                // render's texels go where they're seen and the FOV stays sane up close.
+                // Mirrors seen in this reflection are re-rendered first, from this reflection's own
+                // viewpoint, so they're live (not frozen) inside it.
+                if (cfg.recursiveMirrors && cfg.nestedMirrors > 0) {
+                    V3 virtualEye = PlanarMath.reflectPoint(eyeV, mirror.geometry.center(), mirror.geometry.normal());
+                    for (Mirror inner : nestedCandidates(mirror, virtualEye, cfg)) {
+                        MirrorProbe nested = nestedProbe(inner, mirror, job.probe().resolution, colorFormat, depthFormat);
+                        renderView(ctx, inner, nested, virtualEye, inner.geometry.corners(), eye, look);
+                    }
+                }
                 V3[] region = mirror.visibleRegion != null && mirror.visibleRegion.length >= 3
                         ? mirror.visibleRegion : mirror.geometry.corners();
-                PlanarMath.Aim aim = PlanarMath.aim(virtualEye, region);
-                captureFovDegrees = aim.fovDegrees();
-                clipNormal = n;
-                clipPoint = mirror.geometry.center().sub(n.mul(0.01)); // keep things touching the glass
-                poseCamera(camera, deltaTracker, virtualEye, aim.yaw(), aim.pitch());
-
-                levelExtracted = false;
-                gameRenderer.extract(deltaTracker, false);
-                if (!levelExtracted) {
-                    // GameRenderer.extract can skip the level (it did on 26.3 with advanceGameTime=false);
-                    // run the level extraction for the probe camera directly.
-                    ((LevelExtractorAccessor) mc.levelExtractor).signmirrors$extract(deltaTracker, camera,
-                            deltaTracker.getGameTimeDeltaPartialTick(false));
-                }
-                if (!levelExtracted) {
-                    // Rendering now would draw stale state (and breaks Sodium), so stop safely instead.
-                    SignMirrorsClient.LOGGER.error("Level extraction did not run for the mirror camera; disabling mirrors");
-                    cfg.enabled = false;
-                    break;
-                }
-
-                CameraRenderState cameraState = accessor.signmirrors$gameRenderState().levelRenderState.cameraRenderState;
-                camera.extractRenderState(cameraState, deltaTracker);
-                squareProjection(cameraState);
-                captureCameraPos = cameraState.pos;
-                captureViewRotation = new Matrix4f(cameraState.viewRotationMatrix);
-                SodiumCompat.beforeExtraLevelRender();
-                if (shaderPack) IrisCompat.beforeCapture();
-                try {
-                    accessor.signmirrors$renderLevel();
-                } finally {
-                    if (shaderPack) IrisCompat.afterCapture();
-                }
-
-                Matrix4f proj = MirrorDrawer.lastProjection();
-                if (proj == null) proj = new Matrix4f(cameraState.projectionMatrix);
-                probe.viewProj = new Matrix4f(proj).mul(captureViewRotation);
-                probe.origin = captureCameraPos;
-                probe.eye = eye;
-                probe.look = look;
-                probe.markCaptured(frame);
+                renderView(ctx, mirror, job.probe(), eyeV, region, eye, look);
             }
         } catch (Throwable t) {
             SignMirrorsClient.LOGGER.error("Mirror capture failed; disabling mirrors for this session", t);
@@ -220,6 +181,153 @@ public final class MirrorCapture {
         }
 
         for (Mirror m : active) promotePendingProbe(m);
+        if (frame % 30 == 0) expireNested();
+    }
+
+    /** What one capture needs from runCaptures. */
+    private record Context(Minecraft mc, GameRenderer gameRenderer, GameRendererAccessor accessor, Camera camera,
+                           DeltaTracker deltaTracker, MirrorConfig cfg) {}
+
+    /**
+     * Renders the world into {@code probe} as {@code mirror} reflects it for a viewer at
+     * {@code viewerEye}: from that eye mirrored through the glass, framing {@code region}.
+     * {@code playerEye} / {@code playerLook} are recorded to tell later when it's out of date.
+     */
+    private static void renderView(Context ctx, Mirror mirror, MirrorProbe probe, V3 viewerEye, V3[] region,
+                                   Vec3 playerEye, Vec3 playerLook) {
+        Minecraft mc = ctx.mc();
+        GameRenderer gameRenderer = ctx.gameRenderer();
+        GameRendererAccessor accessor = ctx.accessor();
+        Camera camera = ctx.camera();
+        DeltaTracker deltaTracker = ctx.deltaTracker();
+        MirrorConfig cfg = ctx.cfg();
+        Vec3 eye = playerEye;
+        Vec3 look = playerLook;
+        if (!cfg.enabled) return;
+        currentMirror = mirror;
+        captureResolution = probe.resolution;
+        accessor.signmirrors$setMainRenderTarget(probe.target());
+
+        // Render the real world from the eye reflected through the mirror plane, aimed at the
+        // mirror, clipping everything on the far side of the plane (the wall and beyond).
+        V3 n = mirror.geometry.normal();
+        V3 virtualEye = PlanarMath.reflectPoint(viewerEye, mirror.geometry.center(), n);
+        // Frame only the part of the mirror that's on screen (not the whole mirror), so the
+        // render's texels go where they're seen and the FOV stays sane up close.
+        PlanarMath.Aim aim = PlanarMath.aim(virtualEye, region);
+        captureFovDegrees = aim.fovDegrees();
+        clipNormal = n;
+        clipPoint = mirror.geometry.center().sub(n.mul(0.01)); // keep things touching the glass
+        poseCamera(camera, deltaTracker, virtualEye, aim.yaw(), aim.pitch());
+
+        levelExtracted = false;
+        gameRenderer.extract(deltaTracker, false);
+        if (!levelExtracted) {
+            // GameRenderer.extract can skip the level (it did on 26.3 with advanceGameTime=false);
+            // run the level extraction for the probe camera directly.
+            ((LevelExtractorAccessor) mc.levelExtractor).signmirrors$extract(deltaTracker, camera,
+                    deltaTracker.getGameTimeDeltaPartialTick(false));
+        }
+        if (!levelExtracted) {
+            // Rendering now would draw stale state (and breaks Sodium), so stop safely instead.
+            SignMirrorsClient.LOGGER.error("Level extraction did not run for the mirror camera; disabling mirrors");
+            cfg.enabled = false;
+            return;
+        }
+
+        CameraRenderState cameraState = accessor.signmirrors$gameRenderState().levelRenderState.cameraRenderState;
+        camera.extractRenderState(cameraState, deltaTracker);
+        squareProjection(cameraState);
+        captureCameraPos = cameraState.pos;
+        captureViewRotation = new Matrix4f(cameraState.viewRotationMatrix);
+        SodiumCompat.beforeExtraLevelRender();
+        if (shaderPack) IrisCompat.beforeCapture();
+        try {
+            accessor.signmirrors$renderLevel();
+        } finally {
+            if (shaderPack) IrisCompat.afterCapture();
+        }
+
+        Matrix4f proj = MirrorDrawer.lastProjection();
+        if (proj == null) proj = new Matrix4f(cameraState.projectionMatrix);
+        probe.viewProj = new Matrix4f(proj).mul(captureViewRotation);
+        probe.origin = captureCameraPos;
+        probe.eye = eye;
+        probe.look = look;
+        probe.markCaptured(frame);
+    }
+
+    /** Nested textures unused for this many frames are freed. */
+    private static final long NESTED_EXPIRY_FRAMES = 120;
+
+    /**
+     * Mirrors visible inside {@code outer}'s reflection, as seen from {@code virtualEye} (the viewer's
+     * eye mirrored through {@code outer}), biggest first, at most config.nestedMirrors. A mirror
+     * counts if it's in front of {@code outer}, faces the virtual eye, is in range, and the line from
+     * the virtual eye to its centre or a corner passes through {@code outer}'s glass.
+     */
+    private static List<Mirror> nestedCandidates(Mirror outer, V3 virtualEye, MirrorConfig cfg) {
+        record Scored(Mirror m, double score) {}
+        List<Scored> found = new ArrayList<>();
+        V3 outerN = outer.geometry.normal(), outerC = outer.geometry.center();
+        for (Mirror inner : MirrorTracker.INSTANCE.all()) {
+            if (inner == outer || !inner.reflects()) continue;
+            V3 c = inner.geometry.center();
+            V3 toEye = virtualEye.sub(c);
+            double dist = toEye.length();
+            if (dist > cfg.maxMirrorDistance || dist < 1e-3) continue;
+            if (toEye.dot(inner.geometry.normal()) <= 0) continue; // seen from behind
+            boolean inFront = false;
+            for (V3 p : inner.geometry.corners()) if (p.sub(outerC).dot(outerN) > 0.01) inFront = true;
+            if (!inFront) continue; // behind the outer mirror's plane: clipped from its reflection
+            boolean throughGlass = false;
+            V3[] points = {c, inner.geometry.corners()[0], inner.geometry.corners()[1],
+                    inner.geometry.corners()[2], inner.geometry.corners()[3]};
+            for (V3 p : points) {
+                double t = MirrorView.rayQuad(virtualEye, p.sub(virtualEye), outer.geometry.corners());
+                if (t > 0 && t < 1) { throughGlass = true; break; }
+            }
+            if (!throughGlass) continue;
+            double area = inner.geometry.width() * inner.geometry.height();
+            double cos = Math.abs(toEye.normalize().dot(inner.geometry.normal()));
+            found.add(new Scored(inner, area * cos / (dist * dist)));
+        }
+        found.sort(Comparator.comparingDouble(Scored::score).reversed());
+        List<Mirror> out = new ArrayList<>();
+        for (int i = 0; i < found.size() && i < cfg.nestedMirrors; i++) out.add(found.get(i).m());
+        return out;
+    }
+
+    /** {@code inner}'s texture for being seen inside {@code outer}'s reflection, (re)made at the right size. */
+    private static MirrorProbe nestedProbe(Mirror inner, Mirror outer, int outerResolution,
+                                           GpuFormat colorFormat, GpuFormat depthFormat) {
+        MirrorConfig cfg = SignMirrorsClient.config;
+        int res = shaderPack ? cfg.irisResolution
+                : Math.max(32, Math.min(cfg.maxResolution, outerResolution / 2));
+        MirrorProbe probe = inner.nested.get(outer);
+        if (probe != null && (probe.resolution != res || !probe.matches(colorFormat, depthFormat))) {
+            probe.release();
+            probe = null;
+        }
+        if (probe == null) {
+            probe = new MirrorProbe(res, colorFormat, depthFormat);
+            inner.nested.put(outer, probe);
+        }
+        return probe;
+    }
+
+    /** Frees nested textures that haven't been rendered lately or whose outer mirror is gone. */
+    private static void expireNested() {
+        var live = MirrorTracker.INSTANCE.all();
+        for (Mirror m : live) {
+            if (m.nested.isEmpty()) continue;
+            m.nested.entrySet().removeIf(e -> {
+                boolean stale = !live.contains(e.getKey()) || e.getKey().probe == null
+                        || frame - e.getValue().capturedFrame() > NESTED_EXPIRY_FRAMES;
+                if (stale) e.getValue().release();
+                return stale;
+            });
+        }
     }
 
     /** Reflection renders allowed per frame: each is a full shader-pack render when one is on. */

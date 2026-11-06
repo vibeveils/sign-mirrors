@@ -22,7 +22,7 @@ Place a sign (or edit one) and use the **mirror controls in the sign editor**, i
 
 | Appearance (right) | |
 |---|---|
-| Frame | None, the sign's own wood, any plank type, stripped logs, stone, deepslate, blackstone, quartz, obsidian, iron, gold, copper, concrete. |
+| Frame | Cycles like Signed Paintings' backs: **none**, **sign** (planks of the sign's own wood), **block** (the texture of the block the sign is attached to — the wall behind a wall sign, the block under a standing sign, the block above a hanging sign), or **material** (pick one with ‹ › : any plank type, stripped logs, stone, deepslate, blackstone, quartz, obsidian, iron, gold, copper, concrete). |
 | Frame px | Border width, ½ to 8 texture pixels. |
 | Pixels/block | Pixelates the reflection into sharp square pixels (0 = smooth). Each pixel shows the reflection through its centre, so it stays stable as you move. Pixelated mirrors also render their reflection at lower resolution. |
 | Tint # | Colour multiplied into the reflection (`RRGGBB`). |
@@ -83,8 +83,14 @@ the text. Wall-hanging signs are not supported.
 5. **Frames and hidden signs** — frames are boxes textured with a block texture, emitted from the
    sign's own block entity renderer, so they're lit like the sign and show up in reflections. Hidden
    signs skip their text there, and their board is left out of the chunk mesh (vanilla and Sodium).
-6. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
-   inside captures, so facing mirrors show each other one frame behind.
+6. **Mirror-in-mirror** — a mirror's reflection is only exact for one viewpoint, so a mirror seen
+   *inside* another mirror can't reuse its on-screen texture (it would look frozen and wrong). Before
+   each reflection is rendered, the mirrors visible in it (in front of it, facing it, seen through
+   its glass) are re-rendered first from that reflection's own viewpoint, at half resolution, and
+   that texture is used when they're drawn inside it (*Live mirrors in reflections*, default 1 per
+   reflection). Deeper levels (a mirror in a mirror in a mirror) reuse the nearest texture available,
+   which is still updated every time those mirrors render. Mirrors are drawn at Fabric's
+   `LevelRenderEvents.END_MAIN` (or after Iris's final pass), which also fires inside captures.
 
 ## Shader packs (Iris)
 
@@ -113,13 +119,13 @@ All of this goes through reflection and pseudo-mixins, so Iris is not needed to 
 With [Mod Menu](https://modrinth.com/mod/modmenu) and [Cloth Config](https://modrinth.com/mod/cloth-config)
 installed, open Mods → Sign Mirrors → Configure. Without them, edit `config/signmirrors.json`.
 
-| Preset | Resolution | Scale | Renders/frame | Mirrors at once | Distance | Mirror-in-mirror |
-|---|---|---|---|---|---|---|
-| Low | 64–256 | 50% | 1 | 2 | 32 | off |
-| Medium | 64–512 | 75% | 2 | 4 | 48 | on |
-| **High** (default) | 128–1024 | 100% | 3 | 6 | 64 | on |
-| Ultra | 128–2048 | 100% | 5 | 8 | 96 | on |
-| Custom | your settings | | | | | |
+| Preset | Resolution | Scale | Renders/frame | Mirrors at once | Distance | Mirror-in-mirror | Live inner mirrors |
+|---|---|---|---|---|---|---|---|
+| Low | 64–256 | 50% | 1 | 2 | 32 | off | 0 |
+| Medium | 64–512 | 75% | 2 | 4 | 48 | on | 1 |
+| **High** (default) | 128–1024 | 100% | 3 | 6 | 64 | on | 1 |
+| Ultra | 128–2048 | 100% | 5 | 8 | 96 | on | 2 |
+| Custom | your settings | | | | | | |
 
 Changing any Quality/Performance setting yourself switches the preset to Custom.
 
@@ -130,6 +136,7 @@ Changing any Quality/Performance setting yourself switches the preset to Custom.
 | Quality | Min / max reflection resolution | Range the LOD picks from. Max is the biggest quality knob. |
 | | Resolution scale | Reflection texels per screen pixel of mirror. |
 | | Mirrors in reflections | Mirror-in-mirror. |
+| | Live mirrors in reflections | Mirrors seen in a reflection re-rendered from its viewpoint (0–4, extra renders). |
 | Performance | Reflection renders per frame | Mirrors re-rendered per frame — the main cost. |
 | | Mirrors updated at once | Most important N visible mirrors. |
 | | Mirror draw distance | Beyond this, mirrors aren't drawn. |

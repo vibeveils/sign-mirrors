@@ -31,6 +31,11 @@ public class MirrorConfig {
     public float resolutionScale = 1.0f;
     /** Draw other mirrors inside reflections (mirror-in-mirror). */
     public boolean recursiveMirrors = true;
+    /**
+     * Mirrors seen inside a reflection that are re-rendered from that reflection's viewpoint each
+     * time it updates (so they move instead of looking frozen). Each one is an extra world render.
+     */
+    public int nestedMirrors = 1;
 
     // ---- Performance (set by preset unless CUSTOM) ----
     /** Reflections re-rendered per frame across all mirrors. Each one is an extra world render. */
@@ -96,16 +101,17 @@ public class MirrorConfig {
     public void applyPresetAndSanitize() {
         if (preset == null) preset = Preset.HIGH;
         switch (preset) {
-            case LOW -> set(64, 256, 0.5f, false, 1, 2, 32);
-            case MEDIUM -> set(64, 512, 0.75f, true, 2, 4, 48);
-            case HIGH -> set(128, 1024, 1.0f, true, 3, 6, 64);
-            case ULTRA -> set(128, 2048, 1.0f, true, 5, 8, 96);
+            case LOW -> set(64, 256, 0.5f, false, 0, 1, 2, 32);
+            case MEDIUM -> set(64, 512, 0.75f, true, 1, 2, 4, 48);
+            case HIGH -> set(128, 1024, 1.0f, true, 1, 3, 6, 64);
+            case ULTRA -> set(128, 2048, 1.0f, true, 2, 5, 8, 96);
             case CUSTOM -> { }
         }
         minResolution = pow2(Math.max(16, Math.min(2048, minResolution)));
         maxResolution = pow2(Math.max(minResolution, Math.min(2048, maxResolution)));
         resolutionScale = Math.max(0.1f, Math.min(4f, resolutionScale));
         rendersPerFrame = Math.max(0, Math.min(30, rendersPerFrame));
+        nestedMirrors = Math.max(0, Math.min(4, nestedMirrors));
         irisRendersPerFrame = Math.max(0, Math.min(10, irisRendersPerFrame));
         irisResolution = pow2(Math.max(256, Math.min(2048, irisResolution)));
         maxActiveMirrors = Math.max(1, Math.min(32, maxActiveMirrors));
@@ -122,13 +128,14 @@ public class MirrorConfig {
         t.applyPresetAndSanitize();
         return minResolution == t.minResolution && maxResolution == t.maxResolution
                 && Math.abs(resolutionScale - t.resolutionScale) < 1e-3
-                && recursiveMirrors == t.recursiveMirrors
+                && recursiveMirrors == t.recursiveMirrors && nestedMirrors == t.nestedMirrors
                 && rendersPerFrame == t.rendersPerFrame && maxActiveMirrors == t.maxActiveMirrors
                 && Math.abs(maxMirrorDistance - t.maxMirrorDistance) < 1e-6;
     }
 
-    private void set(int minRes, int maxRes, float scale, boolean recursive,
+    private void set(int minRes, int maxRes, float scale, boolean recursive, int nested,
                      int renders, int active, double distance) {
+        nestedMirrors = nested;
         minResolution = minRes;
         maxResolution = maxRes;
         resolutionScale = scale;

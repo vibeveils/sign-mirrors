@@ -165,7 +165,9 @@ public final class MirrorDrawer {
 
         List<Mirror> toDraw = new ArrayList<>();
         for (Mirror m : MirrorTracker.INSTANCE.all()) {
-            if (m == skip || !m.ready()) continue;
+            if (m == skip || !m.drawsGlass()) continue;
+            // Inside a reflection, use the texture rendered for that reflection's viewpoint if there is one.
+            if (m.reflects() && m.textureFor(skip) == null) continue; // nothing rendered yet
             if (!capturing && !m.visible) continue; // culled for the player's view (frustum/occlusion)
             V3 c = m.geometry.center(), n = m.geometry.normal();
             double dx = cam.x - c.x(), dy = cam.y - c.y(), dz = cam.z - c.z();
@@ -220,11 +222,11 @@ public final class MirrorDrawer {
                     pass.setIndexBuffer(indexBuffer, indices.type());
                     bound = pipeline;
                 }
-                boolean reflecting = m.reflects() && m.probe != null && m.probe.isCaptured();
-                GpuBuffer uniforms = writeUniforms(m, cam, drawProjection, modelView, cfg, reflecting);
+                MirrorProbe texture = m.reflects() ? m.textureFor(skip) : null;
+                GpuBuffer uniforms = writeUniforms(m, texture, cam, drawProjection, modelView, cfg);
                 uniformBuffers.add(uniforms);
                 pass.setUniform("MirrorInfo", uniforms.slice());
-                RenderTarget reflection = reflecting ? m.probe.target() : MirrorProbe.placeholder(colorFormat, depthFormat);
+                RenderTarget reflection = texture != null ? texture.target() : MirrorProbe.placeholder(colorFormat, depthFormat);
                 pass.setUniform("Reflection", reflection.getColorTextureView(),
                         m.settings.pixelsPerBlock > 0 ? sharp : smooth);
                 pass.drawIndexed(quadIndexCount, 1, 0, i * 4, 0);
@@ -241,8 +243,9 @@ public final class MirrorDrawer {
         return dx * dx + dy * dy + dz * dz;
     }
 
-    private static GpuBuffer writeUniforms(Mirror m, Vec3 cam, Matrix4f projection, Matrix4f modelView,
-                                           MirrorConfig cfg, boolean reflecting) {
+    private static GpuBuffer writeUniforms(Mirror m, MirrorProbe texture, Vec3 cam, Matrix4f projection,
+                                           Matrix4f modelView, MirrorConfig cfg) {
+        boolean reflecting = texture != null;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer data = stack.calloc(UNIFORM_SIZE);
             var s = m.settings;
@@ -253,15 +256,15 @@ public final class MirrorDrawer {
             Std140Builder.intoBuffer(data)
                     .putMat4f(projection)
                     .putMat4f(modelView)
-                    .putMat4f(reflecting ? m.probe.viewProj : IDENTITY)
-                    .putVec4(reflecting ? (float) (m.probe.origin.x - cam.x) : 0f,
-                             reflecting ? (float) (m.probe.origin.y - cam.y) : 0f,
-                             reflecting ? (float) (m.probe.origin.z - cam.z) : 0f, 0f)
+                    .putMat4f(reflecting ? texture.viewProj : IDENTITY)
+                    .putVec4(reflecting ? (float) (texture.origin.x - cam.x) : 0f,
+                             reflecting ? (float) (texture.origin.y - cam.y) : 0f,
+                             reflecting ? (float) (texture.origin.z - cam.z) : 0f, 0f)
                     .putVec4((float) (c0.x() - cam.x), (float) (c0.y() - cam.y), (float) (c0.z() - cam.z), 0f)
                     .putVec4((float) u.x(), (float) u.y(), (float) u.z(), (float) g.width())
                     .putVec4((float) v.x(), (float) v.y(), (float) v.z(), (float) g.height())
                     .putVec4(tr, tg, tb, s.opacity / 100f)
-                    .putVec4(reflecting ? 1f / m.probe.resolution : 0f, reflectivity,
+                    .putVec4(reflecting ? 1f / texture.resolution : 0f, reflectivity,
                              cfg.flipFaceV ? 1f : 0f, s.pixelsPerBlock);
             // Std140Builder may use relative puts; hand the whole block over either way.
             data.position(0).limit(UNIFORM_SIZE);

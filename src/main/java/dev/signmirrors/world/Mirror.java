@@ -7,7 +7,9 @@ import dev.signmirrors.render.MirrorCapture;
 import dev.signmirrors.render.MirrorProbe;
 import net.minecraft.core.BlockPos;
 
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** A live mirror: settings and geometry from its sign, its GPU probe, and this frame's visibility/LOD state. */
 public final class Mirror {
@@ -20,11 +22,19 @@ public final class Mirror {
     public List<MirrorGeometry.Box> frameBoxes;
     /** The sign's wood type ("oak", "crimson", ...), for the sign-wood frame. */
     public String woodType;
+    /** The block the sign hangs on or stands on, for the block frame. */
+    public BlockPos supportPos;
 
     /** The probe drawn on screen. Null until the mirror has first been visible. */
     public MirrorProbe probe;
     /** A probe at a new resolution being filled in; replaces {@link #probe} once it has been rendered. */
     public MirrorProbe pendingProbe;
+    /**
+     * This mirror as seen inside another mirror's reflection, keyed by that other mirror: rendered
+     * from the other mirror's virtual eye just before the other mirror's own reflection is, so
+     * mirrors in mirrors stay live. Freed when unused (MirrorCapture.expireNested).
+     */
+    public final Map<Mirror, MirrorProbe> nested = new IdentityHashMap<>();
 
     // ---- Per-frame visibility / level-of-detail state (MirrorVisibility) ----
     /** Passed frustum and occlusion culling this frame (including the grace period). */
@@ -51,7 +61,8 @@ public final class Mirror {
         this.pos = pos;
     }
 
-    void update(String key, MirrorSettings settings, MirrorGeometry geometry, String woodType) {
+    void update(String key, MirrorSettings settings, MirrorGeometry geometry, String woodType, BlockPos supportPos) {
+        this.supportPos = supportPos;
         this.key = key;
         this.settings = settings;
         this.geometry = geometry;
@@ -77,6 +88,18 @@ public final class Mirror {
         return !reflects() || (probe != null && probe.isCaptured());
     }
 
+    /**
+     * The texture to draw this mirror with when it's seen in {@code viewer}'s reflection (null for
+     * the player's own view): its nested texture for that viewer if it has one, else its own.
+     */
+    public MirrorProbe textureFor(Mirror viewer) {
+        if (viewer != null) {
+            MirrorProbe p = nested.get(viewer);
+            if (p != null && p.isCaptured()) return p;
+        }
+        return probe != null && probe.isCaptured() ? probe : null;
+    }
+
     /** The probe captures should go into. */
     public MirrorProbe captureTarget() {
         return pendingProbe != null ? pendingProbe : probe;
@@ -87,5 +110,7 @@ public final class Mirror {
         if (pendingProbe != null) pendingProbe.release();
         probe = null;
         pendingProbe = null;
+        for (MirrorProbe p : nested.values()) p.release();
+        nested.clear();
     }
 }

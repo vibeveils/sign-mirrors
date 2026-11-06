@@ -37,10 +37,14 @@ public final class MirrorSettings {
     public static final double MAX_FRAME_PX = 8;
     public static final int MAX_PIXELS_PER_BLOCK = 256;
 
-    /** Frame looks, by id. Ids are stored in signs, so only ever append. Texture paths are in the block atlas. */
+    /**
+     * Frame looks, by id. Ids are stored in signs, so only ever append. Like Signed Paintings' backs,
+     * the main choices are NONE, SIGN_WOOD (planks of the sign's own wood) and BLOCK (the texture of
+     * the block the sign is attached to); the rest are fixed materials (block-atlas texture paths).
+     */
     public enum Frame {
         NONE("none", null),
-        SIGN_WOOD("sign_wood", null), // planks of the sign's own wood type
+        SIGN_WOOD("sign_wood", null),
         OAK("oak_planks", "block/oak_planks"),
         SPRUCE("spruce_planks", "block/spruce_planks"),
         BIRCH("birch_planks", "block/birch_planks"),
@@ -65,7 +69,8 @@ public final class MirrorSettings {
         GOLD("gold", "block/gold_block"),
         COPPER("copper", "block/copper_block"),
         WHITE_CONCRETE("white_concrete", "block/white_concrete"),
-        BLACK_CONCRETE("black_concrete", "block/black_concrete");
+        BLACK_CONCRETE("black_concrete", "block/black_concrete"),
+        BLOCK("block", null);
 
         /** Translation key suffix. */
         public final String key;
@@ -85,6 +90,31 @@ public final class MirrorSettings {
         public Frame next(int step) {
             Frame[] all = values();
             return all[Math.floorMod(ordinal() + step, all.length)];
+        }
+
+        /** One of the fixed materials (not NONE / SIGN_WOOD / BLOCK). */
+        public boolean isMaterial() {
+            return texture != null;
+        }
+
+        /** The next fixed material, wrapping around. */
+        public Frame nextMaterial(int step) {
+            Frame f = isMaterial() ? this : OAK;
+            if (!isMaterial()) return f;
+            do {
+                f = f.next(step);
+            } while (!f.isMaterial());
+            return f;
+        }
+
+        /** Frame mode shown in the editor: NONE, SIGN_WOOD, BLOCK, or the material group. */
+        public int mode() {
+            return switch (this) {
+                case NONE -> 0;
+                case SIGN_WOOD -> 1;
+                case BLOCK -> 2;
+                default -> 3;
+            };
         }
     }
 

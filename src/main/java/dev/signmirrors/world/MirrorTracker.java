@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.SignBlock;
+import net.minecraft.world.level.block.StandingSignBlock;
 import net.minecraft.world.level.block.WallSignBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
@@ -109,7 +110,7 @@ public final class MirrorTracker {
             seen.add(pos);
             Mirror m = existing != null ? existing : new Mirror(pos.immutable());
             // Edits keep the probe: the next capture re-renders it for the new shape.
-            m.update(key, settings.get(), geometry, woodType(state));
+            m.update(key, settings.get(), geometry, woodType(state), supportPos(pos, state));
             if (existing == null) mirrors.put(m.pos, m);
         }
         mirrors.entrySet().removeIf(e -> {
@@ -141,6 +142,14 @@ public final class MirrorTracker {
     private static void rebuild(ClientLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         level.sendBlockUpdated(pos, state, state, 3);
+    }
+
+    /** Wall signs: the block behind; standing signs: the block below; ceiling hanging signs: the block above. */
+    private static BlockPos supportPos(BlockPos pos, BlockState state) {
+        if (state.getBlock() instanceof WallSignBlock && state.hasProperty(BlockStateProperties.HORIZONTAL_FACING)) {
+            return pos.relative(state.getValue(BlockStateProperties.HORIZONTAL_FACING).getOpposite()).immutable();
+        }
+        return (state.getBlock() instanceof StandingSignBlock ? pos.below() : pos.above()).immutable();
     }
 
     private static String woodType(BlockState state) {
