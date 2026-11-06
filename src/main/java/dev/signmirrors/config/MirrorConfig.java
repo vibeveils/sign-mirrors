@@ -50,6 +50,14 @@ public class MirrorConfig {
     /** Frames a mirror stays "visible" after it was last seen, to avoid popping. */
     public int visibilityGraceFrames = 10;
 
+    // ---- Shader packs (Iris) ----
+    /** Render reflections with the active shader pack. Off: mirrors show only their tint while a pack is on. */
+    public boolean irisReflections = true;
+    /** Reflection renders per frame while a shader pack is on (each one is a full shader-pack render). */
+    public int irisRendersPerFrame = 1;
+    /** Size of every reflection texture while a shader pack is on. Power of two. */
+    public int irisResolution = 1024;
+
     // ---- Advanced ----
     /** Flip reflections vertically when sampling. Turn on if reflections appear upside down on your graphics backend. */
     public boolean flipFaceV = false;
@@ -98,6 +106,8 @@ public class MirrorConfig {
         maxResolution = pow2(Math.max(minResolution, Math.min(2048, maxResolution)));
         resolutionScale = Math.max(0.1f, Math.min(4f, resolutionScale));
         rendersPerFrame = Math.max(0, Math.min(30, rendersPerFrame));
+        irisRendersPerFrame = Math.max(0, Math.min(10, irisRendersPerFrame));
+        irisResolution = pow2(Math.max(256, Math.min(2048, irisResolution)));
         maxActiveMirrors = Math.max(1, Math.min(32, maxActiveMirrors));
         maxMirrorDistance = Math.max(4, Math.min(512, maxMirrorDistance));
         occlusionCheckInterval = Math.max(1, Math.min(60, occlusionCheckInterval));

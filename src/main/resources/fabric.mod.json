@@ -3,7 +3,7 @@
   "id": "signmirrors",
   "version": "${version}",
   "name": "Sign Mirrors",
-  "description": "Client-side: signs that say [Mirror] become real-time mirrors, rendered exactly from your reflected eye by a secondary camera. Size, placement, frame, pixelation, tint, opacity and reflectivity are set from the sign editor.",
+  "description": "Client-side: signs that say [Mirror] become real-time mirrors, rendered exactly from your reflected eye by a secondary camera (Iris shader packs supported). Size, placement, frame, pixelation, tint, opacity and reflectivity are set from the sign editor.",
   "authors": ["codedcells"],
   "license": "MIT",
   "environment": "client",

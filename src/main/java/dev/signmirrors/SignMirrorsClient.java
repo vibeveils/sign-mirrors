@@ -33,6 +33,6 @@ public class SignMirrorsClient implements ClientModInitializer {
         ClientChunkEvents.CHUNK_LOAD.register((level, chunk) -> MirrorTracker.INSTANCE.trackChunk(chunk));
         ClientTickEvents.END_CLIENT_TICK.register(MirrorTracker.INSTANCE::tick);
         LevelExtractionEvents.END_EXTRACTION.register(context -> MirrorCapture.onLevelExtracted());
-        LevelRenderEvents.END_MAIN.register(context -> MirrorDrawer.draw(context.levelState().cameraRenderState));
+        LevelRenderEvents.END_MAIN.register(context -> MirrorDrawer.drawInWorldPass(context.levelState().cameraRenderState));
     }
 }

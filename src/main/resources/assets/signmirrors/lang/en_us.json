@@ -111,5 +111,12 @@
   "signmirrors.editor.frame.gold": "Frame: Gold",
   "signmirrors.editor.frame.copper": "Frame: Copper",
   "signmirrors.editor.frame.white_concrete": "Frame: White concrete",
-  "signmirrors.editor.frame.black_concrete": "Frame: Black concrete"
+  "signmirrors.editor.frame.black_concrete": "Frame: Black concrete",
+  "signmirrors.config.category.iris": "Shader packs",
+  "signmirrors.config.irisReflections": "Reflections with shader packs",
+  "signmirrors.config.irisReflections.tooltip": "With an Iris shader pack on, render reflections with the pack (each is a full shader-pack render, in a separate pipeline so your own view isn't disturbed). Off: mirrors show only their tint colour while a pack is on.",
+  "signmirrors.config.irisRendersPerFrame": "Reflection renders per frame (shaders)",
+  "signmirrors.config.irisRendersPerFrame.tooltip": "Used instead of the normal setting while a shader pack is on. Each render runs the whole pack, shadows included, so keep this low.",
+  "signmirrors.config.irisResolution": "Reflection resolution (shaders)",
+  "signmirrors.config.irisResolution.tooltip": "While a shader pack is on, every reflection uses this one size (so the pack's buffers are never resized)."
 }

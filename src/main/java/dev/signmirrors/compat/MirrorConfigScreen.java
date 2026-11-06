@@ -98,6 +98,18 @@ final class MirrorConfigScreen {
                 .setSaveConsumer(v -> cfg.visibilityGraceFrames = v).build());
 
         // ---- Advanced ----
+        ConfigCategory iris = builder.getOrCreateCategory(t("category.iris"));
+        iris.addEntry(e.startBooleanToggle(t("irisReflections"), cfg.irisReflections)
+                .setDefaultValue(defaults.irisReflections).setTooltip(t("irisReflections.tooltip"))
+                .setSaveConsumer(v -> cfg.irisReflections = v).build());
+        iris.addEntry(e.startIntSlider(t("irisRendersPerFrame"), cfg.irisRendersPerFrame, 0, 10)
+                .setDefaultValue(defaults.irisRendersPerFrame).setTooltip(t("irisRendersPerFrame.tooltip"))
+                .setSaveConsumer(v -> cfg.irisRendersPerFrame = v).build());
+        iris.addEntry(e.startSelector(t("irisResolution"), new Integer[] {256, 512, 1024, 2048}, cfg.irisResolution)
+                .setDefaultValue(defaults.irisResolution).setTooltip(t("irisResolution.tooltip"))
+                .setNameProvider(v -> Component.literal(v + " x " + v))
+                .setSaveConsumer(v -> cfg.irisResolution = v).build());
+
         ConfigCategory adv = builder.getOrCreateCategory(t("category.advanced"));
         adv.addEntry(e.startBooleanToggle(t("flipFaceV"), cfg.flipFaceV)
                 .setDefaultValue(defaults.flipFaceV).setTooltip(t("flipFaceV.tooltip"))

@@ -128,7 +128,24 @@ public final class MirrorDrawer {
     }
 
     /** LevelRenderEvents.END_MAIN */
-    public static void draw(CameraRenderState cameraState) {
+    /** End of the world pass (Fabric END_MAIN). With a shader pack this would be overwritten, so it waits (see below). */
+    public static void drawInWorldPass(CameraRenderState cameraState) {
+        if (IrisCompat.shaderPackActive()) return;
+        draw(cameraState, false);
+    }
+
+    /** Right after a shader pack's final pass (Iris only), over the finished image. */
+    public static void drawAfterShaderPack(CameraRenderState cameraState) {
+        if (!IrisCompat.shaderPackActive()) return;
+        IrisCompat.setBypass(true);
+        try {
+            draw(cameraState, true);
+        } finally {
+            IrisCompat.setBypass(false);
+        }
+    }
+
+    private static void draw(CameraRenderState cameraState, boolean shaderPackDepth) {
         MirrorConfig cfg = SignMirrorsClient.config;
         if (!cfg.enabled) return;
         boolean capturing = MirrorCapture.isCapturing();
@@ -180,6 +197,10 @@ public final class MirrorDrawer {
         }
         RenderSystem.AutoStorageIndexBuffer indices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
         GpuBuffer indexBuffer = indices.getBuffer(quadIndexCount);
+        // Iris renders the level with ordinary depth; match it so the depth test works.
+        Matrix4f drawProjection = shaderPackDepth
+                ? IrisCompat.undoReverseZ(projection, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne())
+                : projection;
         GpuSampler smooth = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         GpuSampler sharp = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
 
@@ -200,7 +221,7 @@ public final class MirrorDrawer {
                     bound = pipeline;
                 }
                 boolean reflecting = m.reflects() && m.probe != null && m.probe.isCaptured();
-                GpuBuffer uniforms = writeUniforms(m, cam, projection, modelView, cfg, reflecting);
+                GpuBuffer uniforms = writeUniforms(m, cam, drawProjection, modelView, cfg, reflecting);
                 uniformBuffers.add(uniforms);
                 pass.setUniform("MirrorInfo", uniforms.slice());
                 RenderTarget reflection = reflecting ? m.probe.target() : MirrorProbe.placeholder(colorFormat, depthFormat);

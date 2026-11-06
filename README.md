@@ -86,6 +86,28 @@ the text. Wall-hanging signs are not supported.
 6. **Mirror-in-mirror** — mirrors are drawn at Fabric's `LevelRenderEvents.END_MAIN`, which also fires
    inside captures, so facing mirrors show each other one frame behind.
 
+## Shader packs (Iris)
+
+Mirrors work with Iris shader packs, and reflections are rendered *with* the pack (its lighting,
+shadows, water, sky and post-processing):
+
+- **Drawing.** With a pack on, the world is drawn into Iris's own buffers and Iris's final pass
+  then overwrites the whole screen — which is why mirrors used to vanish. Now they are drawn right
+  after Iris's final pass, depth-tested against the scene depth Iris leaves behind (converted to
+  the ordinary depth Iris uses instead of the game's reverse-Z).
+- **Reflections.** Each reflection is a full shader-pack render. They run in a *separate* Iris
+  pipeline, created with Iris's own factory the first time a mirror is seen with a pack on (expect
+  a short pause while the pack compiles a second time). That keeps your own view's buffers, frame
+  history (TAA, motion blur) and previous-frame matrices untouched. All reflections use one size
+  (*Reflection resolution (shaders)*, default 1024) so that pipeline never has to resize, and
+  Iris's per-frame camera uniforms are refreshed before each one.
+- **Cost.** A shader-pack render (shadow pass included) is expensive, so while a pack is on the
+  budget is *Reflection renders per frame (shaders)*, default 1. Several mirrors then take turns.
+- **Fallback.** Turn off *Reflections with shader packs* (or if Iris can't build the reflection
+  pipeline) and mirrors show just their tint colour while a pack is on.
+
+All of this goes through reflection and pseudo-mixins, so Iris is not needed to build or run the mod.
+
 ## Options
 
 With [Mod Menu](https://modrinth.com/mod/modmenu) and [Cloth Config](https://modrinth.com/mod/cloth-config)
@@ -113,6 +135,9 @@ Changing any Quality/Performance setting yourself switches the preset to Custom.
 | | Mirror draw distance | Beyond this, mirrors aren't drawn. |
 | Culling | Skip mirrors outside the view / hidden mirrors | Frustum / occlusion culling. |
 | | Hidden-mirror check interval, grace period | Raycast frequency and anti-pop delay. |
+| Shader packs | Reflections with shader packs | Render reflections with the active Iris pack (off: tint only). |
+| | Reflection renders per frame (shaders) | Budget while a pack is on (default 1). |
+| | Reflection resolution (shaders) | One shared reflection size while a pack is on. |
 | Advanced | Flip reflections vertically | Backend workaround. |
 
 Tint, opacity and reflectivity are per mirror now (set in the sign editor), so the old global
@@ -158,6 +183,7 @@ Fabric API, Iris, Sodium and Tweakeroo's 26.3 branches:
 | `mixin/AbstractSignEditScreenMixin`, `gui/*` (editor hooks, widgets) | Signed Paintings' 26.3 sign-editor hooks (same injection points; code is our own) |
 | `mixin/AbstractSignRendererMixin`, `render/FrameRenderer` (frames, `submitCustomGeometry`, block sprites) | Signed Paintings' 26.3 sign renderer hooks |
 | `mixin/optional/SectionCompilerMixin`, `SodiumBlockRendererMixin` (hiding the sign board) | Signed Paintings' chunk-mesh hooks for vanilla and Sodium |
+| `render/IrisCompat`, `mixin/optional/LevelRendererIrisMixin`, `IrisPipelineManagerMixin` | Iris 26.3 source: its end-of-level hook (`popMatrix` in `LevelRenderer.render`), `PipelineManager`, `MatrixUtils.undoRevZ`, `SystemTimeUniforms.COUNTER` |
 
 26.3 has no public getter for sign text, so `mixin/SignBlockEntityAccessor` reads the private
 `frontText` field (the same field Tweakeroo's 26.3 sign-copy feature uses).
@@ -181,4 +207,6 @@ instead of crashing the game.
 - Clouds are not drawn inside reflections (the cloud renderer can't share a frame between two views).
 - Sodium: supported. Sodium assumes one level render per frame, so before each capture the mod resets
   Sodium's per-frame terrain uniforms (`render/SodiumCompat`, via reflection — no compile dependency).
-- Shader packs (Iris) replace the world pipeline and are untested.
+- Shader packs: see below. Reflections in reflections (mirror-in-mirror) and packs with heavy
+  temporal effects (TAA) can show a little ghosting inside reflections when several mirrors share
+  the reflection pipeline.

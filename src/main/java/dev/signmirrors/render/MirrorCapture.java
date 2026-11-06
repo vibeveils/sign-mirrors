@@ -65,6 +65,14 @@ public final class MirrorCapture {
     private MirrorCapture() {}
 
     public static boolean isCapturing() { return capturing; }
+
+    /** With a shader pack, whether this frame's state allows reflections (see IrisCompat). */
+    private static boolean shaderPack, reflectionsAvailable = true;
+
+    public static boolean shaderPackActive() { return shaderPack; }
+
+    /** False while a shader pack is on and reflections can't be rendered with it: mirrors show their tint. */
+    public static boolean reflectionsAvailable() { return reflectionsAvailable; }
     public static int resolution() { return captureResolution; }
     public static Mirror currentMirror() { return currentMirror; }
     /** Keeps Sodium's terrain projection in step with the capture projection (no-op without Sodium). */
@@ -88,10 +96,12 @@ public final class MirrorCapture {
         MirrorConfig cfg = SignMirrorsClient.config;
         Minecraft mc = Minecraft.getInstance();
         frame++;
+        shaderPack = IrisCompat.shaderPackActive();
+        reflectionsAvailable = !shaderPack || IrisCompat.canCapture();
         if (!cfg.enabled || mc.level == null || mc.player == null) return;
 
         List<Mirror> visible = MirrorVisibility.update(mc, frame, cfg);
-        if (visible.isEmpty() || cfg.rendersPerFrame <= 0) return;
+        if (visible.isEmpty() || budget(cfg) <= 0 || !reflectionsAvailable) return;
         List<Mirror> active = visible.size() > cfg.maxActiveMirrors
                 ? visible.subList(0, cfg.maxActiveMirrors) : visible;
 
@@ -175,7 +185,12 @@ public final class MirrorCapture {
                 captureCameraPos = cameraState.pos;
                 captureViewRotation = new Matrix4f(cameraState.viewRotationMatrix);
                 SodiumCompat.beforeExtraLevelRender();
-                accessor.signmirrors$renderLevel();
+                if (shaderPack) IrisCompat.beforeCapture();
+                try {
+                    accessor.signmirrors$renderLevel();
+                } finally {
+                    if (shaderPack) IrisCompat.afterCapture();
+                }
 
                 Matrix4f proj = MirrorDrawer.lastProjection();
                 if (proj == null) proj = new Matrix4f(cameraState.projectionMatrix);
@@ -207,11 +222,19 @@ public final class MirrorCapture {
         for (Mirror m : active) promotePendingProbe(m);
     }
 
+    /** Reflection renders allowed per frame: each is a full shader-pack render when one is on. */
+    private static int budget(MirrorConfig cfg) {
+        return shaderPack ? cfg.irisRendersPerFrame : cfg.rendersPerFrame;
+    }
+
     /** Creates the first probe, or starts a probe at a new resolution when the LOD has settled on one. */
     private static void prepareProbes(Mirror m, GpuFormat colorFormat, GpuFormat depthFormat) {
         if (!m.reflects()) return;
         int res = m.targetResolution > 0 ? m.targetResolution : SignMirrorsClient.config.minResolution;
         if (m.probe != null && !m.probe.matches(colorFormat, depthFormat)) m.releaseProbe(); // formats changed
+        if (shaderPack && m.probe != null && m.probe.resolution != SignMirrorsClient.config.irisResolution) {
+            m.releaseProbe(); // shader packs: one shared size, switch at once
+        }
         if (m.probe == null) {
             m.probe = new MirrorProbe(res, colorFormat, depthFormat);
             return;
@@ -262,9 +285,9 @@ public final class MirrorCapture {
         int burst = 0;
         for (Job job : candidates) {
             boolean urgent = job.score() >= 1e12;
-            if (jobs.size() - burst < cfg.rendersPerFrame) {
+            if (jobs.size() - burst < budget(cfg)) {
                 jobs.add(job);
-            } else if (urgent && burst < MAX_BURST) {
+            } else if (urgent && burst < (shaderPack ? 1 : MAX_BURST)) {
                 jobs.add(job);
                 burst++;
             } else {

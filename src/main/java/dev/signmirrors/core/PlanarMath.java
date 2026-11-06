@@ -120,11 +120,18 @@ public final class PlanarMath {
         return d > 0 && d < 1.0;
     }
 
+    /** For a reverse-Z projection: the far plane's depth, 0 ([0, 1] depth) or -1 ([-1, 1] depth). */
+    public static double reverseFarNdc(double[] p) {
+        double z = ndcDepth(p, new double[] {0, 0, -1e7, 1});
+        return z < -0.5 ? -1 : 0;
+    }
+
     /**
      * Replaces the projection's depth row so its near plane is {@code planeView} (a plane in view
      * space, a·x + b·y + c·z + d, keeping the side where it's >= 0), with the far plane moved just far
-     * enough to keep the original frustum's far corners. Works for standard OpenGL depth and
-     * reverse-Z [0, 1]. X, Y and W rows are untouched, so screen positions don't change.
+     * enough to keep the original frustum's far corners. Works for standard OpenGL depth, reverse-Z
+     * [0, 1] (26.3 with clip control) and reverse-Z [-1, 1] (26.3 without clip control, which is how
+     * Iris runs it). X, Y and W rows are untouched, so screen positions don't change.
      *
      * @return the new matrix, or null if no part of the view lies on the kept side of the plane
      */
@@ -133,7 +140,9 @@ public final class PlanarMath {
         double[] inv = invert(proj);
         if (inv == null) return null;
         double[] w = row(proj, 3);
-        double farNdc = reverse ? 0 : 1;
+        double farNdc = reverse ? reverseFarNdc(proj) : 1;
+        // Depth range from the near plane to the far plane, in units of w: 2 for [-1, 1], 1 for [0, 1].
+        double range = reverse && farNdc == 0 ? 1 : 2;
 
         double lambda = Double.POSITIVE_INFINITY;
         for (int sx = -1; sx <= 1; sx += 2) {
@@ -144,7 +153,7 @@ public final class PlanarMath {
                 double cq = dot(planeView, q);
                 if (cq <= 1e-9) continue;
                 double wq = dot(w, q);
-                lambda = Math.min(lambda, (reverse ? wq : 2 * wq) / cq);
+                lambda = Math.min(lambda, range * wq / cq);
             }
         }
         if (Double.isInfinite(lambda) || lambda <= 0) return null;
@@ -152,7 +161,7 @@ public final class PlanarMath {
         double[] out = proj.clone();
         for (int c = 0; c < 4; c++) {
             double z = reverse
-                    ? w[c] - lambda * planeView[c]   // near: w - z = λC·v >= 0, far: z >= 0
+                    ? w[c] - lambda * planeView[c]   // near: w - z = λC·v >= 0, far: z >= 0 (or >= -w)
                     : lambda * planeView[c] - w[c];  // near: z + w = λC·v >= 0, far: z <= w
             out[c * 4 + 2] = z;
         }

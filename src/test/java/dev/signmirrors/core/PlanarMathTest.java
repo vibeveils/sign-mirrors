@@ -28,10 +28,18 @@ class PlanarMathTest {
         return perspective(90, 1, 512, 0.05, true);
     }
 
+    /** 26.3 without clip control (e.g. with Iris): reverse-Z, depth [-1, 1]. */
+    private static double[] reverseMinusOne() {
+        return perspective(90, 1, 512, 0.05, false);
+    }
+
     @Test
     void detectsDepthConvention() {
         assertFalse(PlanarMath.isReverseZ(gl()));
         assertTrue(PlanarMath.isReverseZ(reverse()));
+        assertTrue(PlanarMath.isReverseZ(reverseMinusOne()));
+        assertEquals(0, PlanarMath.reverseFarNdc(reverse()), 1e-9);
+        assertEquals(-1, PlanarMath.reverseFarNdc(reverseMinusOne()), 1e-9);
     }
 
     @Test
@@ -43,6 +51,10 @@ class PlanarMathTest {
     }
 
     private static void checkClip(double[] proj, double[] plane, boolean reverse) {
+        checkClip(proj, plane, reverse, reverse ? 0 : 1);
+    }
+
+    private static void checkClip(double[] proj, double[] plane, boolean reverse, double farNdc) {
         double[] clipped = PlanarMath.obliqueClip(proj, plane);
         assertNotNull(clipped);
         // Screen-space rows untouched.
@@ -51,7 +63,7 @@ class PlanarMathTest {
             assertEquals(proj[c * 4 + 1], clipped[c * 4 + 1], 1e-12);
             assertEquals(proj[c * 4 + 3], clipped[c * 4 + 3], 1e-12);
         }
-        double nearNdc = reverse ? 1 : -1, farNdc = reverse ? 0 : 1;
+        double nearNdc = reverse ? 1 : -1;
         // Points along a few view rays: kept side inside the depth range, removed side outside it,
         // and depth monotonic along each ray.
         double[][] dirs = {{0, 0, -1}, {0.6, 0.3, -1}, {-0.9, -0.9, -1}, {0.95, -0.2, -1}};
@@ -82,6 +94,7 @@ class PlanarMathTest {
         double[] plane = {0, 0, -1, -3};
         checkClip(gl(), plane, false);
         checkClip(reverse(), plane, true);
+        checkClip(reverseMinusOne(), plane, true, -1);
     }
 
     @Test
@@ -91,6 +104,7 @@ class PlanarMathTest {
         double[] plane = {nx / len, 0.1, nz / len, -2.5};
         checkClip(gl(), plane, false);
         checkClip(reverse(), plane, true);
+        checkClip(reverseMinusOne(), plane, true, -1);
     }
 
     @Test

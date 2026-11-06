@@ -4,7 +4,9 @@
   "package": "dev.signmirrors.mixin.optional",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "IrisPipelineManagerMixin",
     "LevelExtractorMixin",
+    "LevelRendererIrisMixin",
     "SectionCompilerMixin",
     "SodiumBlockRendererMixin"
   ],

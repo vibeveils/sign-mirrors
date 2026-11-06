@@ -111,7 +111,10 @@ final class MirrorVisibility {
 
             int target = MirrorView.resolutionForPixels(m.screenExtentPx, cfg.resolutionScale,
                     cfg.minResolution, cfg.maxResolution);
-            if (m.settings.pixelsPerBlock > 0) {
+            if (MirrorCapture.shaderPackActive()) {
+                // Shader packs: every reflection shares one size, so the reflection pipeline never resizes.
+                target = cfg.irisResolution;
+            } else if (m.settings.pixelsPerBlock > 0) {
                 // Pixelated: each mirror pixel shows one reflection sample, so there's no point
                 // rendering much finer than two texels per mirror pixel.
                 double cells = Math.max(m.geometry.width(), m.geometry.height()) * m.settings.pixelsPerBlock;

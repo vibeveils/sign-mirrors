@@ -3,6 +3,7 @@ package dev.signmirrors.world;
 import dev.signmirrors.core.MirrorGeometry;
 import dev.signmirrors.core.MirrorSettings;
 import dev.signmirrors.core.V3;
+import dev.signmirrors.render.MirrorCapture;
 import dev.signmirrors.render.MirrorProbe;
 import net.minecraft.core.BlockPos;
 
@@ -67,7 +68,7 @@ public final class Mirror {
 
     /** Whether the glass shows a reflection (and so needs captures). */
     public boolean reflects() {
-        return settings.opacity > 0 && settings.reflectivity > 0;
+        return settings.opacity > 0 && settings.reflectivity > 0 && MirrorCapture.reflectionsAvailable();
     }
 
     /** True once there is something to draw. */
