@@ -11,6 +11,8 @@ layout(std140) uniform MirrorInfo {
     vec4 AxisV;          // xyz: unit vector along the left edge, w: height in blocks
     vec4 Tint;           // rgb: tint, a: opacity
     vec4 Params;         // x: 1/resolution, y: reflectivity, z: flip V (0/1), w: pixels per block (0 = smooth)
+    mat4 InvProjMat;     // inverse of ProjMat (shader-side depth test)
+    vec4 DepthTest;      // x: test against SceneDepth (0/1), y: depth is [0,1] (0/1), zw: 1/screen size
 };
 
 layout(location = 0) in vec3 Position;

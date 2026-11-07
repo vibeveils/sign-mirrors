@@ -123,5 +123,7 @@
   "signmirrors.editor.frame.material": "Frame: material",
   "signmirrors.editor.frame.tooltip": "Click to cycle. Sign: planks of the sign's wood. Block: the texture of the block the sign is on. Material: pick one below.",
   "signmirrors.config.nestedMirrors": "Live mirrors in reflections",
-  "signmirrors.config.nestedMirrors.tooltip": "How many mirrors seen inside a reflection are re-rendered from that reflection's own viewpoint whenever it updates, so they move properly instead of looking frozen. Each is an extra (half-resolution) world render; 0 shows them with their normal texture."
+  "signmirrors.config.nestedMirrors.tooltip": "How many mirrors seen inside a reflection are re-rendered from that reflection's own viewpoint whenever it updates, so they move properly instead of looking frozen. Each is an extra (half-resolution) world render; 0 shows them with their normal texture.",
+  "signmirrors.config.irisDedicatedPipelines": "Flicker-free reflections (shaders)",
+  "signmirrors.config.irisDedicatedPipelines.tooltip": "How many reflections get a shader-pack pipeline of their own. Packs blend each frame with the last (anti-aliasing, exposure); a pipeline shared between mirrors keeps blending different views, which flickers. Each one uses the pack's video memory and compiles the pack once (a short pause). Other reflections share one more pipeline."
 }

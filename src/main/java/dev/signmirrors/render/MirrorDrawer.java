@@ -13,6 +13,7 @@ import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
 import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
@@ -50,13 +51,14 @@ public final class MirrorDrawer {
     /**
      * std140 MirrorInfo, must match mirror.vsh / mirror.fsh:
      * mat4 ProjMat, mat4 ModelViewMat, mat4 PlanarViewProj, vec4 PlanarOrigin, vec4 Corner,
-     * vec4 AxisU, vec4 AxisV, vec4 Tint, vec4 Params.
+     * vec4 AxisU, vec4 AxisV, vec4 Tint, vec4 Params, mat4 InvProjMat, vec4 DepthTest.
      */
-    private static final int UNIFORM_SIZE = 3 * 64 + 6 * 16;
+    private static final int UNIFORM_SIZE = 4 * 64 + 7 * 16;
 
     private static final BindGroupLayout LAYOUT = BindGroupLayout.builder()
             .withUniform("MirrorInfo", UniformType.UNIFORM_BUFFER)
             .withUniform("Reflection", UniformType.COMBINED_IMAGE_SAMPLER)
+            .withUniform("SceneDepth", UniformType.COMBINED_IMAGE_SAMPLER)
             .build();
 
     public static final RenderPipeline PIPELINE = RenderPipeline.builder()
@@ -70,6 +72,39 @@ public final class MirrorDrawer {
             .withVertexBinding(0, DefaultVertexFormat.POSITION)
             .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .build();
+
+    /**
+     * With a shader pack, mirrors are drawn over Iris's finished image. The depth test is then done
+     * in the shader against a copy-free read of the scene depth, in view space, so it doesn't depend
+     * on how Iris has remapped depth or compare functions (a hardware test there let mirrors cover the
+     * hand, the player in third person and other entities in front of them).
+     */
+    public static final RenderPipeline SHADER_PACK_PIPELINE = RenderPipeline.builder()
+            .withLocation(id("pipeline/mirror_shaderpack"))
+            .withVertexShader(id("mirror"))
+            .withFragmentShader(id("mirror"))
+            .withBindGroupLayout(LAYOUT)
+            .withColorTargetState(ColorTargetState.DEFAULT)
+            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+            .withCull(true)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .build();
+
+    public static final RenderPipeline SHADER_PACK_TRANSLUCENT_PIPELINE = RenderPipeline.builder()
+            .withLocation(id("pipeline/mirror_shaderpack_translucent"))
+            .withVertexShader(id("mirror"))
+            .withFragmentShader(id("mirror"))
+            .withBindGroupLayout(LAYOUT)
+            .withColorTargetState(new ColorTargetState(Optional.of(BlendFunction.TRANSLUCENT), GpuFormat.RGBA8_UNORM, 0xFFFFFFFF))
+            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+            .withCull(true)
+            .withVertexBinding(0, DefaultVertexFormat.POSITION)
+            .withPrimitiveTopology(PrimitiveTopology.QUADS)
+            .build();
+
+    /** Set if sampling the scene depth fails on this setup; falls back to the hardware depth test. */
+    private static boolean shaderDepthBroken;
 
     /** Mirrors with opacity below 100%: alpha-blended over the world. */
     public static final RenderPipeline TRANSLUCENT_PIPELINE = RenderPipeline.builder()
@@ -140,6 +175,10 @@ public final class MirrorDrawer {
         IrisCompat.setBypass(true);
         try {
             draw(cameraState, true);
+        } catch (RuntimeException e) {
+            if (shaderDepthBroken) throw e;
+            shaderDepthBroken = true;
+            SignMirrorsClient.LOGGER.warn("Could not depth-test mirrors in the shader with this setup; using the hardware depth test", e);
         } finally {
             IrisCompat.setBypass(false);
         }
@@ -203,6 +242,9 @@ public final class MirrorDrawer {
         Matrix4f drawProjection = shaderPackDepth
                 ? IrisCompat.undoReverseZ(projection, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne())
                 : projection;
+        boolean shaderDepth = shaderPackDepth && !shaderDepthBroken;
+        DepthInfo depthInfo = new DepthInfo(shaderDepth, new Matrix4f(drawProjection).invert(),
+                RenderSystem.getDevice().getDeviceInfo().isZZeroToOne());
         GpuSampler smooth = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         GpuSampler sharp = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
 
@@ -210,12 +252,19 @@ public final class MirrorDrawer {
         RenderTarget target = Minecraft.getInstance().gameRenderer.mainRenderTarget();
         GpuFormat colorFormat = target.getColorTexture().getFormat();
         GpuFormat depthFormat = target.getDepthTexture().getFormat();
-        try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(() -> "signmirrors mirrors",
-                target.getColorTextureView(), Optional.empty(), target.getDepthTextureView(), OptionalDouble.empty())) {
+        var encoder = RenderSystem.getDevice().createCommandEncoder();
+        // Shader-side depth test: the depth texture is read, so it mustn't also be attached.
+        try (RenderPass pass = shaderDepth
+                ? encoder.createRenderPass(() -> "signmirrors mirrors", target.getColorTextureView(), Optional.empty())
+                : encoder.createRenderPass(() -> "signmirrors mirrors", target.getColorTextureView(), Optional.empty(),
+                        target.getDepthTextureView(), OptionalDouble.empty())) {
             RenderPipeline bound = null;
             for (int i = 0; i < toDraw.size(); i++) {
                 Mirror m = toDraw.get(i);
-                RenderPipeline pipeline = m.settings.opacity >= 100 ? PIPELINE : TRANSLUCENT_PIPELINE;
+                boolean opaque = m.settings.opacity >= 100;
+                RenderPipeline pipeline = shaderDepth
+                        ? (opaque ? SHADER_PACK_PIPELINE : SHADER_PACK_TRANSLUCENT_PIPELINE)
+                        : (opaque ? PIPELINE : TRANSLUCENT_PIPELINE);
                 if (pipeline != bound) {
                     pass.setPipeline(RenderSystem.getCompiledPipeline(pipeline));
                     pass.setVertexBuffer(0, vertices.slice());
@@ -223,12 +272,16 @@ public final class MirrorDrawer {
                     bound = pipeline;
                 }
                 MirrorProbe texture = m.reflects() ? m.textureFor(skip) : null;
-                GpuBuffer uniforms = writeUniforms(m, texture, cam, drawProjection, modelView, cfg);
+                GpuBuffer uniforms = writeUniforms(m, texture, cam, drawProjection, modelView, cfg, depthInfo,
+                        target.width, target.height);
                 uniformBuffers.add(uniforms);
                 pass.setUniform("MirrorInfo", uniforms.slice());
                 RenderTarget reflection = texture != null ? texture.target() : MirrorProbe.placeholder(colorFormat, depthFormat);
                 pass.setUniform("Reflection", reflection.getColorTextureView(),
                         m.settings.pixelsPerBlock > 0 ? sharp : smooth);
+                // Without the shader-side test this sampler is unused; bind something that isn't attached.
+                pass.setUniform("SceneDepth", shaderDepth ? target.getDepthTextureView()
+                        : MirrorProbe.placeholder(colorFormat, depthFormat).getColorTextureView(), sharp);
                 pass.drawIndexed(quadIndexCount, 1, 0, i * 4, 0);
             }
         } finally {
@@ -243,8 +296,12 @@ public final class MirrorDrawer {
         return dx * dx + dy * dy + dz * dz;
     }
 
+    /** How the shader-side depth test reads the scene depth. */
+    private record DepthInfo(boolean enabled, Matrix4f inverseProjection, boolean zeroToOne) {}
+
     private static GpuBuffer writeUniforms(Mirror m, MirrorProbe texture, Vec3 cam, Matrix4f projection,
-                                           Matrix4f modelView, MirrorConfig cfg) {
+                                           Matrix4f modelView, MirrorConfig cfg, DepthInfo depth,
+                                           int screenWidth, int screenHeight) {
         boolean reflecting = texture != null;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer data = stack.calloc(UNIFORM_SIZE);
@@ -265,7 +322,10 @@ public final class MirrorDrawer {
                     .putVec4((float) v.x(), (float) v.y(), (float) v.z(), (float) g.height())
                     .putVec4(tr, tg, tb, s.opacity / 100f)
                     .putVec4(reflecting ? 1f / texture.resolution : 0f, reflectivity,
-                             cfg.flipFaceV ? 1f : 0f, s.pixelsPerBlock);
+                             cfg.flipFaceV ? 1f : 0f, s.pixelsPerBlock)
+                    .putMat4f(depth.inverseProjection())
+                    .putVec4(depth.enabled() ? 1f : 0f, depth.zeroToOne() ? 1f : 0f,
+                             1f / Math.max(1, screenWidth), 1f / Math.max(1, screenHeight));
             // Std140Builder may use relative puts; hand the whole block over either way.
             data.position(0).limit(UNIFORM_SIZE);
             return RenderSystem.getDevice().createBuffer(() -> "signmirrors MirrorInfo",

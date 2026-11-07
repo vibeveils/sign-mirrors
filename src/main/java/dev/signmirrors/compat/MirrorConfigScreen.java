@@ -108,6 +108,9 @@ final class MirrorConfigScreen {
         iris.addEntry(e.startIntSlider(t("irisRendersPerFrame"), cfg.irisRendersPerFrame, 0, 10)
                 .setDefaultValue(defaults.irisRendersPerFrame).setTooltip(t("irisRendersPerFrame.tooltip"))
                 .setSaveConsumer(v -> cfg.irisRendersPerFrame = v).build());
+        iris.addEntry(e.startIntSlider(t("irisDedicatedPipelines"), cfg.irisDedicatedPipelines, 0, 6)
+                .setDefaultValue(defaults.irisDedicatedPipelines).setTooltip(t("irisDedicatedPipelines.tooltip"))
+                .setSaveConsumer(v -> cfg.irisDedicatedPipelines = v).build());
         iris.addEntry(e.startSelector(t("irisResolution"), new Integer[] {256, 512, 1024, 2048}, cfg.irisResolution)
                 .setDefaultValue(defaults.irisResolution).setTooltip(t("irisResolution.tooltip"))
                 .setNameProvider(v -> Component.literal(v + " x " + v))

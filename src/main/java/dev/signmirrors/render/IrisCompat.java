@@ -6,8 +6,8 @@ import org.joml.Matrix4f;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -23,10 +23,16 @@ import java.util.function.Function;
  *       (not reverse) depth, so the mirror's projection is converted to match.</li>
  *   <li><b>Reflections.</b> Each capture is a full shader-pack render. Doing that with the player's
  *       own Iris pipeline would resize all of its buffers to the reflection's size and back every
- *       frame, and mix the reflection into its frame history (TAA, motion blur, "previous" matrices).
- *       So captures get their own Iris pipeline, created with Iris's own factory, swapped in only
- *       while a capture renders ({@code mixin/optional/IrisPipelineManagerMixin}). All reflection
- *       textures share one size so that pipeline never resizes.</li>
+ *       frame, and mix the reflection into its frame history (TAA, motion blur, auto exposure,
+ *       "previous" matrices). So captures get their own Iris pipelines, created with Iris's own
+ *       factory, swapped in only while a capture renders ({@code mixin/optional/IrisPipelineManagerMixin}).
+ *       All reflection textures share one size so those pipelines never resize.</li>
+ *   <li><b>Temporal coherence.</b> Packs blend each frame with the previous one (TAA, exposure
+ *       adaptation, motion blur). If one pipeline renders mirror A, then mirror B, then A again, every
+ *       frame's "previous frame" is a different view, and the reflection flickers -- badly up close,
+ *       where the view changes fastest. So the most important reflections get a pipeline of their own
+ *       (config.irisDedicatedPipelines); a pipeline is reassigned only once its reflection has gone
+ *       unused for a while, so the expensive pack compile happens rarely. The rest share one.</li>
  *   <li><b>Per-frame uniforms.</b> Iris refreshes camera uniforms once per frame counter tick; the
  *       counter is advanced before each capture so every reflection gets its own camera's values.</li>
  * </ul>
@@ -44,8 +50,22 @@ public final class IrisCompat {
     private static boolean broken;
     private static boolean captureFailed;
 
-    /** Capture pipelines, by Iris dimension id. */
-    private static final Map<Object, Object> capturePipelines = new HashMap<>();
+    /** A capture pipeline and the reflection (probe) it currently belongs to. */
+    private static final class Slot {
+        Object pipeline;
+        Object dimension;
+        Object owner;
+        long lastUsed;
+    }
+
+    /** Pipelines owned by one reflection each. */
+    private static final List<Slot> dedicated = new ArrayList<>();
+    /** The pipeline shared by reflections without one of their own. */
+    private static Slot shared;
+    /** The reflection being rendered now (its probe), or null. */
+    private static Object currentKey;
+    /** A dedicated pipeline is reassigned after its reflection hasn't rendered for this many frames. */
+    private static final long SLOT_IDLE_FRAMES = 90;
     /** The player's pipeline while a capture pipeline is swapped in. */
     private static Object savedPipeline;
     private static Object savedManager;
@@ -96,8 +116,9 @@ public final class IrisCompat {
 
     // ---- Around each capture ----
 
-    /** Before a capture's level render: give it fresh per-frame uniforms. */
-    static void beforeCapture() {
+    /** Before a capture's level render into {@code key} (its probe): give it fresh per-frame uniforms. */
+    static void beforeCapture(Object key) {
+        currentKey = key;
         if (!init()) return;
         try {
             counterBeginFrame.invoke(counter);
@@ -108,6 +129,7 @@ public final class IrisCompat {
 
     /** After a capture's level render: put the player's pipeline back. */
     static void afterCapture() {
+        currentKey = null;
         if (savedManager == null) return;
         try {
             managerPipeline.set(savedManager, savedPipeline);
@@ -126,18 +148,24 @@ public final class IrisCompat {
     public static Object capturePipelineFor(Object manager, Object dimension) {
         if (!MirrorCapture.isCapturing() || captureFailed || !init()) return null;
         try {
-            Object pipeline = capturePipelines.get(dimension);
-            if (pipeline == null) {
+            Slot slot = slotFor(currentKey, dimension);
+            if (slot.pipeline == null || !slot.dimension.equals(dimension)) {
+                destroyQuietly(slot.pipeline);
+                slot.pipeline = null;
                 @SuppressWarnings("unchecked")
                 Function<Object, Object> factory = (Function<Object, Object>) managerFactory.get(manager);
-                SignMirrorsClient.LOGGER.info("Creating a separate Iris pipeline for mirror reflections ({})", dimension);
-                pipeline = factory.apply(dimension);
-                if (!irisPipelineClass.isInstance(pipeline)) {
-                    destroyQuietly(pipeline);
+                SignMirrorsClient.LOGGER.info("Creating an Iris pipeline for mirror reflections ({}, {})",
+                        dimension, slot == shared ? "shared" : "dedicated " + (dedicated.indexOf(slot) + 1));
+                Object created = factory.apply(dimension);
+                if (!irisPipelineClass.isInstance(created)) {
+                    destroyQuietly(created);
                     throw new IllegalStateException("Iris could not create a shader pipeline for reflections");
                 }
-                capturePipelines.put(dimension, pipeline);
+                slot.pipeline = created;
+                slot.dimension = dimension;
             }
+            slot.lastUsed = MirrorCapture.frame();
+            Object pipeline = slot.pipeline;
             if (savedManager == null) {
                 savedManager = manager;
                 savedPipeline = managerPipeline.get(manager);
@@ -151,10 +179,41 @@ public final class IrisCompat {
         }
     }
 
+    /**
+     * The pipeline for this reflection: its own if it has one; else a free or idle dedicated one
+     * (or a new one, up to the configured number); else the shared one.
+     */
+    private static Slot slotFor(Object key, Object dimension) {
+        long frame = MirrorCapture.frame();
+        int wanted = SignMirrorsClient.config.irisDedicatedPipelines;
+        while (dedicated.size() > wanted) destroyQuietly(dedicated.remove(dedicated.size() - 1).pipeline);
+        if (key != null) {
+            for (Slot s : dedicated) if (s.owner == key) return s;
+            Slot idle = null;
+            for (Slot s : dedicated) {
+                if (s.owner == null || frame - s.lastUsed > SLOT_IDLE_FRAMES) {
+                    if (idle == null || s.lastUsed < idle.lastUsed) idle = s;
+                }
+            }
+            if (idle == null && dedicated.size() < wanted) {
+                idle = new Slot();
+                dedicated.add(idle);
+            }
+            if (idle != null) {
+                idle.owner = key;
+                return idle;
+            }
+        }
+        if (shared == null) shared = new Slot();
+        return shared;
+    }
+
     /** Iris is tearing down its pipelines (shader reload, pack change): drop ours too. */
     public static void destroyCapturePipelines() {
-        for (Object p : capturePipelines.values()) destroyQuietly(p);
-        capturePipelines.clear();
+        for (Slot s : dedicated) destroyQuietly(s.pipeline);
+        dedicated.clear();
+        if (shared != null) destroyQuietly(shared.pipeline);
+        shared = null;
         captureFailed = false;
     }
 

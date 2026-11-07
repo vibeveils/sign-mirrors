@@ -62,6 +62,12 @@ public class MirrorConfig {
     public int irisRendersPerFrame = 1;
     /** Size of every reflection texture while a shader pack is on. Power of two. */
     public int irisResolution = 1024;
+    /**
+     * Reflections that get an Iris pipeline of their own while a shader pack is on, so the pack's
+     * frame-to-frame effects (TAA, exposure) see one consistent view and don't flicker. Each costs
+     * the pack's buffers in video memory and a compile pause the first time it's needed.
+     */
+    public int irisDedicatedPipelines = 2;
 
     // ---- Advanced ----
     /** Flip reflections vertically when sampling. Turn on if reflections appear upside down on your graphics backend. */
@@ -113,6 +119,7 @@ public class MirrorConfig {
         rendersPerFrame = Math.max(0, Math.min(30, rendersPerFrame));
         nestedMirrors = Math.max(0, Math.min(4, nestedMirrors));
         irisRendersPerFrame = Math.max(0, Math.min(10, irisRendersPerFrame));
+        irisDedicatedPipelines = Math.max(0, Math.min(6, irisDedicatedPipelines));
         irisResolution = pow2(Math.max(256, Math.min(2048, irisResolution)));
         maxActiveMirrors = Math.max(1, Math.min(32, maxActiveMirrors));
         maxMirrorDistance = Math.max(4, Math.min(512, maxMirrorDistance));

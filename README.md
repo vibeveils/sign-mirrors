@@ -99,14 +99,25 @@ shadows, water, sky and post-processing):
 
 - **Drawing.** With a pack on, the world is drawn into Iris's own buffers and Iris's final pass
   then overwrites the whole screen — which is why mirrors used to vanish. Now they are drawn right
-  after Iris's final pass, depth-tested against the scene depth Iris leaves behind (converted to
-  the ordinary depth Iris uses instead of the game's reverse-Z).
+  after Iris's final pass. The depth test is done in the mirror's shader: it reads the scene depth
+  Iris leaves in the depth buffer, turns it back into a view-space distance and discards mirror
+  pixels that are behind something. (Relying on the hardware depth test there let mirrors cover
+  your hand, your own player model in third person and entities standing in front of them, because
+  Iris remaps depth and compare functions while it renders.) If reading the depth fails on some
+  setup, the mod logs it once and falls back to the hardware test.
 - **Reflections.** Each reflection is a full shader-pack render. They run in a *separate* Iris
   pipeline, created with Iris's own factory the first time a mirror is seen with a pack on (expect
   a short pause while the pack compiles a second time). That keeps your own view's buffers, frame
   history (TAA, motion blur) and previous-frame matrices untouched. All reflections use one size
   (*Reflection resolution (shaders)*, default 1024) so that pipeline never has to resize, and
   Iris's per-frame camera uniforms are refreshed before each one.
+- **No flicker from shared history.** Packs blend each frame with the previous one (TAA, auto
+  exposure, motion blur). A pipeline that alternates between mirrors (or between a mirror and a
+  mirror seen inside it) blends unrelated views every frame, which flickers — worst up close, where
+  the view changes fastest. So the most important reflections get a pipeline of their own
+  (*Flicker-free reflections (shaders)*, default 2), handed to another reflection only after it has
+  gone unused for a few seconds; the rest share one. Each pipeline costs the pack's buffers in video
+  memory and one compile pause.
 - **Cost.** A shader-pack render (shadow pass included) is expensive, so while a pack is on the
   budget is *Reflection renders per frame (shaders)*, default 1. Several mirrors then take turns.
 - **Fallback.** Turn off *Reflections with shader packs* (or if Iris can't build the reflection
@@ -145,6 +156,7 @@ Changing any Quality/Performance setting yourself switches the preset to Custom.
 | Shader packs | Reflections with shader packs | Render reflections with the active Iris pack (off: tint only). |
 | | Reflection renders per frame (shaders) | Budget while a pack is on (default 1). |
 | | Reflection resolution (shaders) | One shared reflection size while a pack is on. |
+| | Flicker-free reflections (shaders) | Reflections with their own pack pipeline (0–6, default 2). |
 | Advanced | Flip reflections vertically | Backend workaround. |
 
 Tint, opacity and reflectivity are per mirror now (set in the sign editor), so the old global

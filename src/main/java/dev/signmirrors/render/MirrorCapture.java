@@ -68,6 +68,9 @@ public final class MirrorCapture {
 
     public static boolean isCapturing() { return capturing; }
 
+    /** Frame number (counts the player's frames). */
+    public static long frame() { return frame; }
+
     /** With a shader pack, whether this frame's state allows reflections (see IrisCompat). */
     private static boolean shaderPack, reflectionsAvailable = true;
 
@@ -241,7 +244,7 @@ public final class MirrorCapture {
         captureCameraPos = cameraState.pos;
         captureViewRotation = new Matrix4f(cameraState.viewRotationMatrix);
         SodiumCompat.beforeExtraLevelRender();
-        if (shaderPack) IrisCompat.beforeCapture();
+        if (shaderPack) IrisCompat.beforeCapture(probe);
         try {
             accessor.signmirrors$renderLevel();
         } finally {

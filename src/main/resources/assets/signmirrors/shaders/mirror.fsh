@@ -11,10 +11,15 @@ layout(std140) uniform MirrorInfo {
     vec4 AxisV;
     vec4 Tint;
     vec4 Params;
+    mat4 InvProjMat;     // inverse of ProjMat (shader-side depth test)
+    vec4 DepthTest;      // x: test against SceneDepth (0/1), y: depth is [0,1] (0/1), zw: 1/screen size
 };
 
 // The world rendered from the viewer's eye reflected through the mirror plane.
 uniform sampler2D Reflection;
+// The scene's depth buffer (only read when DepthTest.x is set: with a shader pack, where mirrors are
+// drawn over the finished image and the hardware depth test can't be trusted).
+uniform sampler2D SceneDepth;
 
 layout(location = 0) in vec3 relPos;
 layout(location = 0) out vec4 fragColor;
@@ -44,7 +49,20 @@ vec3 reflection(vec3 p) {
     return texture(Reflection, uv).rgb;
 }
 
+// Whether something in the scene is in front of this fragment (compared in view space).
+bool hiddenByScene(vec3 p) {
+    vec2 uv = gl_FragCoord.xy * DepthTest.zw;
+    float d = texture(SceneDepth, uv).r;
+    float ndcZ = DepthTest.y > 0.5 ? d : d * 2.0 - 1.0;
+    vec4 scene = InvProjMat * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
+    float sceneZ = scene.z / scene.w;                    // negative: in front of the camera
+    float fragZ = (ModelViewMat * vec4(p, 1.0)).z;
+    float bias = 0.02 + 0.002 * abs(fragZ);
+    return fragZ < sceneZ - bias;                        // fragment is further away than the scene
+}
+
 void main() {
+    if (DepthTest.x > 0.5 && hiddenByScene(relPos)) discard;
     float reflectivity = Params.y;
     vec3 seen = reflectivity > 0.0 ? reflection(snapToPixelGrid(relPos)) : vec3(1.0);
     // Reflectivity blends from the plain tint colour (0) to the tinted reflection (1).
