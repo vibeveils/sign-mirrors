@@ -11,7 +11,8 @@ layout(std140) uniform MirrorInfo {
     vec4 AxisV;
     vec4 Tint;
     vec4 Params;
-    mat4 InvProjMat;     // inverse of ProjMat (shader-side depth test)
+    mat4 InvProjMat;     // inverse of the projection with ordinary depth (near 0)
+    mat4 InvProjAlt;     // inverse of the game's reverse-Z projection (near 1)
     vec4 DepthTest;      // x: test against SceneDepth (0/1), y: depth is [0,1] (0/1), zw: 1/screen size
 };
 
@@ -49,13 +50,23 @@ vec3 reflection(vec3 p) {
     return texture(Reflection, uv).rgb;
 }
 
+// View-space depth (negative, in front of the camera) of window depth d read with one projection.
+float viewDepth(mat4 inverseProjection, vec2 uv, float d) {
+    float ndcZ = DepthTest.y > 0.5 ? d : d * 2.0 - 1.0;
+    vec4 v = inverseProjection * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
+    if (abs(v.w) < 1e-7) return -1e9;                    // infinitely far
+    float z = v.z / v.w;
+    return z > 0.0 ? -1e9 : z;                           // behind the camera: not a real reading
+}
+
 // Whether something in the scene is in front of this fragment (compared in view space).
+// The depth buffer may hold ordinary depth or reverse-Z. Read the wrong way, a depth value always
+// lands almost on the near plane (closer than it really is), so the further of the two readings
+// is the right one -- whichever convention the buffer uses.
 bool hiddenByScene(vec3 p) {
     vec2 uv = gl_FragCoord.xy * DepthTest.zw;
     float d = texture(SceneDepth, uv).r;
-    float ndcZ = DepthTest.y > 0.5 ? d : d * 2.0 - 1.0;
-    vec4 scene = InvProjMat * vec4(uv * 2.0 - 1.0, ndcZ, 1.0);
-    float sceneZ = scene.z / scene.w;                    // negative: in front of the camera
+    float sceneZ = min(viewDepth(InvProjMat, uv, d), viewDepth(InvProjAlt, uv, d)); // further = more negative
     float fragZ = (ModelViewMat * vec4(p, 1.0)).z;
     float bias = 0.02 + 0.002 * abs(fragZ);
     return fragZ < sceneZ - bias;                        // fragment is further away than the scene

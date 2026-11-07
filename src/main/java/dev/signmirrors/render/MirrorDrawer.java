@@ -51,9 +51,9 @@ public final class MirrorDrawer {
     /**
      * std140 MirrorInfo, must match mirror.vsh / mirror.fsh:
      * mat4 ProjMat, mat4 ModelViewMat, mat4 PlanarViewProj, vec4 PlanarOrigin, vec4 Corner,
-     * vec4 AxisU, vec4 AxisV, vec4 Tint, vec4 Params, mat4 InvProjMat, vec4 DepthTest.
+     * vec4 AxisU, vec4 AxisV, vec4 Tint, vec4 Params, mat4 InvProjMat, mat4 InvProjAlt, vec4 DepthTest.
      */
-    private static final int UNIFORM_SIZE = 4 * 64 + 7 * 16;
+    private static final int UNIFORM_SIZE = 5 * 64 + 7 * 16;
 
     private static final BindGroupLayout LAYOUT = BindGroupLayout.builder()
             .withUniform("MirrorInfo", UniformType.UNIFORM_BUFFER)
@@ -243,7 +243,11 @@ public final class MirrorDrawer {
                 ? IrisCompat.undoReverseZ(projection, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne())
                 : projection;
         boolean shaderDepth = shaderPackDepth && !shaderDepthBroken;
-        DepthInfo depthInfo = new DepthInfo(shaderDepth, new Matrix4f(drawProjection).invert(),
+        // The scene depth may be in the game's reverse-Z or Iris's ordinary depth (it depends on the
+        // Iris version and pack); the shader reads it both ways and keeps the plausible one.
+        DepthInfo depthInfo = new DepthInfo(shaderDepth,
+                new Matrix4f(IrisCompat.undoReverseZ(projection, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne())).invert(),
+                new Matrix4f(projection).invert(),
                 RenderSystem.getDevice().getDeviceInfo().isZZeroToOne());
         GpuSampler smooth = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         GpuSampler sharp = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
@@ -297,7 +301,8 @@ public final class MirrorDrawer {
     }
 
     /** How the shader-side depth test reads the scene depth. */
-    private record DepthInfo(boolean enabled, Matrix4f inverseProjection, boolean zeroToOne) {}
+    private record DepthInfo(boolean enabled, Matrix4f inverseProjection, Matrix4f inverseReverseProjection,
+                             boolean zeroToOne) {}
 
     private static GpuBuffer writeUniforms(Mirror m, MirrorProbe texture, Vec3 cam, Matrix4f projection,
                                            Matrix4f modelView, MirrorConfig cfg, DepthInfo depth,
@@ -324,6 +329,7 @@ public final class MirrorDrawer {
                     .putVec4(reflecting ? 1f / texture.resolution : 0f, reflectivity,
                              cfg.flipFaceV ? 1f : 0f, s.pixelsPerBlock)
                     .putMat4f(depth.inverseProjection())
+                    .putMat4f(depth.inverseReverseProjection())
                     .putVec4(depth.enabled() ? 1f : 0f, depth.zeroToOne() ? 1f : 0f,
                              1f / Math.max(1, screenWidth), 1f / Math.max(1, screenHeight));
             // Std140Builder may use relative puts; hand the whole block over either way.

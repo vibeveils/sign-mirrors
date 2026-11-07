@@ -101,7 +101,9 @@ shadows, water, sky and post-processing):
   then overwrites the whole screen — which is why mirrors used to vanish. Now they are drawn right
   after Iris's final pass. The depth test is done in the mirror's shader: it reads the scene depth
   Iris leaves in the depth buffer, turns it back into a view-space distance and discards mirror
-  pixels that are behind something. (Relying on the hardware depth test there let mirrors cover
+  pixels that are behind something. That buffer may hold the game's reverse-Z depth or ordinary
+  depth depending on the Iris version, so it is read both ways: read the wrong way, a value always
+  comes out nearer than the truth (beyond the first ~15 cm), so the further reading is used. (Relying on the hardware depth test there let mirrors cover
   your hand, your own player model in third person and entities standing in front of them, because
   Iris remaps depth and compare functions while it renders.) If reading the depth fails on some
   setup, the mod logs it once and falls back to the hardware test.
